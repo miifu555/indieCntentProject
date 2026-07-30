@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>スマホガン</title>
+<style>
+  :root {
+    color-scheme: dark;
+  }
+  * {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: #05060a;
+    color: #eee;
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif;
+    overflow: hidden;
+    touch-action: none;
+    overscroll-behavior: none;
+  }
+
+  #app {
+    position: fixed;
+    inset: 0;
+  }
+
+  /* ---------- スタート画面 ---------- */
+  #startScreen {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    padding: 24px;
+    text-align: center;
+    background: radial-gradient(circle at 50% 30%, #1a1f2b 0%, #05060a 70%);
+  }
+  #startScreen h1 {
+    font-size: 22px;
+    margin: 0 0 4px;
+    letter-spacing: 2px;
+  }
+  #startScreen p {
+    font-size: 14px;
+    color: #9aa4b2;
+    line-height: 1.6;
+    margin: 0;
+  }
+  #startBtn {
+    margin-top: 12px;
+    padding: 18px 48px;
+    font-size: 18px;
+    font-weight: bold;
+    border: none;
+    border-radius: 999px;
+    background: linear-gradient(180deg, #ff6b4a, #d63b1f);
+    color: #fff;
+    box-shadow: 0 8px 20px rgba(214, 59, 31, 0.45);
+    letter-spacing: 4px;
+  }
+  #startBtn:active {
+    transform: scale(0.97);
+  }
+  #startError {
+    color: #ff7676;
+    font-size: 13px;
+    min-height: 18px;
+  }
+
+  /* ---------- ゲーム画面 ---------- */
+  #gameScreen {
+    position: absolute;
+    inset: 0;
+    display: none;
+  }
+  #gameScreen.active {
+    display: block;
+  }
+
+  #topBar {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 16px;
+    padding-top: max(14px, env(safe-area-inset-top));
+    z-index: 10;
+    font-size: 13px;
+    color: #9aa4b2;
+  }
+  #statusDot {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #ff4757;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  #statusDot.connected {
+    background: #2ed573;
+  }
+  #scoreLabel {
+    font-size: 18px;
+    font-weight: bold;
+    color: #fff;
+  }
+  #recenterBtn {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.2);
+    color: #eee;
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+
+  /* 中央の照準(装飾) */
+  #sight {
+    position: absolute;
+    top: 42%;
+    left: 50%;
+    width: 70px;
+    height: 70px;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+  }
+  #sight::before, #sight::after {
+    content: "";
+    position: absolute;
+    background: rgba(255,255,255,0.55);
+  }
+  #sight::before {
+    left: 50%; top: 0;
+    width: 2px; height: 100%;
+    transform: translateX(-50%);
+  }
+  #sight::after {
+    top: 50%; left: 0;
+    height: 2px; width: 100%;
+    transform: translateY(-50%);
+  }
+  #sightCircle {
+    position: absolute;
+    inset: 14px;
+    border: 2px solid rgba(255,255,255,0.5);
+    border-radius: 50%;
+  }
+
+  #hint {
+    position: absolute;
+    bottom: 26%;
+    left: 0; right: 0;
+    text-align: center;
+    color: #6b7480;
+    font-size: 13px;
+    pointer-events: none;
+    letter-spacing: 1px;
+  }
+
+  /* 下部トリガーエリア */
+  #triggerArea {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 34%;
+    background: linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.05) 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #triggerLabel {
+    font-size: 15px;
+    font-weight: bold;
+    letter-spacing: 6px;
+    color: rgba(255,255,255,0.35);
+  }
+
+  /* マズルフラッシュ演出 */
+  #flash {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 50% 45%, rgba(255,210,120,0.9) 0%, rgba(255,140,60,0.35) 35%, rgba(255,140,60,0) 65%);
+    opacity: 0;
+    pointer-events: none;
+  }
+  #flash.show {
+    animation: flashAnim 0.15s ease-out;
+  }
+  @keyframes flashAnim {
+    0%   { opacity: 1; }
+    100% { opacity: 0; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div id="startScreen">
+    <h1>📱 スマホガン</h1>
+    <p>スマホを銃に見立てて、画面の的を狙い撃つ射的ゲームです。<br>
+       スマホを構えて画面をタップすると発射します。</p>
+    <button id="startBtn">銃を構える</button>
+    <div id="startError"></div>
+  </div>
+
+  <div id="gameScreen">
+    <div id="topBar">
+      <div><span id="statusDot"></span><span id="statusText">未接続</span></div>
+      <div id="scoreLabel">0点</div>
+      <button id="recenterBtn">照準リセット</button>
+    </div>
+
+    <div id="sight"><div id="sightCircle"></div></div>
+    <div id="hint">画面をタップして発射</div>
+
+    <div id="triggerArea"><div id="triggerLabel">FIRE</div></div>
+    <div id="flash"></div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var API_BASE = window.location.origin;
+  var playerId = null;
+  var latestOrientation = { beta: 0, gamma: 0 };
+  var pendingRecenter = true; // 初回送信時に必ずキャリブレーションさせる
+  var sendTimer = null;
+  var audioCtx = null;
+
+  var startScreen = document.getElementById("startScreen");
+  var gameScreen = document.getElementById("gameScreen");
+  var startBtn = document.getElementById("startBtn");
+  var startError = document.getElementById("startError");
+  var statusDot = document.getElementById("statusDot");
+  var statusText = document.getElementById("statusText");
+  var scoreLabel = document.getElementById("scoreLabel");
+  var recenterBtn = document.getElementById("recenterBtn");
+  var flashEl = document.getElementById("flash");
+
+  startBtn.addEventListener("click", onStart);
+  recenterBtn.addEventListener("click", function (e) {
+    e.stopPropagation();
+    pendingRecenter = true;
+  });
+
+  gameScreen.addEventListener("touchstart", onFire, { passive: true });
+  gameScreen.addEventListener("click", onFire);
+
+  function onStart() {
+    startBtn.disabled = true;
+    startError.textContent = "";
+
+    requestOrientationPermission()
+      .then(function (granted) {
+        if (!granted) {
+          startError.textContent = "センサーの許可が得られませんでした。設定を確認してください。";
+          startBtn.disabled = false;
+          return;
+        }
+        return joinServer();
+      })
+      .catch(function (err) {
+        startError.textContent = "接続に失敗しました: " + err;
+        startBtn.disabled = false;
+      });
+  }
+
+  function requestOrientationPermission() {
+    if (typeof DeviceOrientationEvent !== "undefined" &&
+        typeof DeviceOrientationEvent.requestPermission === "function") {
+      // iOS 13+ はユーザー操作の中で明示的な許可が必要
+      return DeviceOrientationEvent.requestPermission().then(function (res) {
+        return res === "granted";
+      });
+    }
+    // Android等、許可不要な環境
+    return Promise.resolve(true);
+  }
+
+  function joinServer() {
+    return fetch(API_BASE + "/join")
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        playerId = data.id;
+        enterGame();
+      });
+  }
+
+  function enterGame() {
+    startScreen.style.display = "none";
+    gameScreen.classList.add("active");
+    statusDot.classList.add("connected");
+    statusText.textContent = "接続中";
+
+    window.addEventListener("deviceorientation", onOrientation);
+    sendTimer = setInterval(sendAim, 70);
+
+    unlockAudio();
+  }
+
+  function onOrientation(e) {
+    if (e.beta === null || e.gamma === null) return;
+    latestOrientation.beta = e.beta;
+    latestOrientation.gamma = e.gamma;
+  }
+
+  function sendAim() {
+    if (!playerId) return;
+    var payload = {
+      id: playerId,
+      beta: latestOrientation.beta,
+      gamma: latestOrientation.gamma,
+      recenter: pendingRecenter,
+    };
+    pendingRecenter = false;
+
+    fetch(API_BASE + "/aim", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (data && typeof data.score === "number") {
+          scoreLabel.textContent = data.score + "点";
+        }
+      })
+      .catch(function () { /* 通信瞬断は無視して次回送信に任せる */ });
+  }
+
+  function onFire(e) {
+    if (e.target === recenterBtn) return;
+    if (!playerId) return;
+
+    playMuzzleFlash();
+    playGunSound();
+    if (navigator.vibrate) navigator.vibrate(35);
+
+    fetch(API_BASE + "/fire", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: playerId }),
+    }).catch(function () { /* ignore */ });
+  }
+
+  function playMuzzleFlash() {
+    flashEl.classList.remove("show");
+    // reflowで再トリガー
+    void flashEl.offsetWidth;
+    flashEl.classList.add("show");
+  }
+
+  function unlockAudio() {
+    try {
+      var AudioCtor = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new AudioCtor();
+    } catch (err) {
+      audioCtx = null;
+    }
+  }
+
+  // 外部音源を使わず、ノイズバーストで簡易的な発砲音を合成する
+  function playGunSound() {
+    if (!audioCtx) return;
+    if (audioCtx.state === "suspended") audioCtx.resume();
+
+    var duration = 0.12;
+    var bufferSize = Math.floor(audioCtx.sampleRate * duration);
+    var buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    var data = buffer.getChannelData(0);
+    for (var i = 0; i < bufferSize; i++) {
+      var decay = 1 - i / bufferSize;
+      data[i] = (Math.random() * 2 - 1) * decay * decay;
+    }
+
+    var noise = audioCtx.createBufferSource();
+    noise.buffer = buffer;
+
+    var filter = audioCtx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.setValueAtTime(3200, audioCtx.currentTime);
+    filter.frequency.exponentialRampToValueAtTime(400, audioCtx.currentTime + duration);
+
+    var gain = audioCtx.createGain();
+    gain.gain.setValueAtTime(1, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(audioCtx.destination);
+    noise.start();
+    noise.stop(audioCtx.currentTime + duration);
+  }
+})();
+</script>
+</body>
+</html>
