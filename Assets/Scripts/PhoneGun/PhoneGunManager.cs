@@ -40,6 +40,8 @@ public class PhoneGunManager : MonoBehaviour
         public float centerBeta;
         public float centerGamma;
         public Vector2 currentOffset;
+        public Vector3 baseScale;
+        public Coroutine flashCoroutine;
     }
 
     private readonly Dictionary<string, PlayerRig> rigs = new Dictionary<string, PlayerRig>();
@@ -98,6 +100,7 @@ public class PhoneGunManager : MonoBehaviour
             reticle = rt,
             reticleImage = go.GetComponentInChildren<Image>(),
             label = go.GetComponentInChildren<TMP_Text>(),
+            baseScale = rt.localScale,
         };
 
         if (server.TryGetPlayer(id, out var info))
@@ -157,16 +160,22 @@ public class PhoneGunManager : MonoBehaviour
             }
         }
 
-        StartCoroutine(FlashReticle(rig));
+        // 連打で複数のフラッシュ演出が重なると拡大率が積み上がってしまうため、
+        // 直前の演出を止めてから常に基準スケールを起点にやり直す
+        if (rig.flashCoroutine != null)
+        {
+            StopCoroutine(rig.flashCoroutine);
+        }
+        rig.flashCoroutine = StartCoroutine(FlashReticle(rig));
     }
 
     IEnumerator FlashReticle(PlayerRig rig)
     {
         if (rig.reticle == null) yield break;
-        Vector3 original = rig.reticle.localScale;
-        rig.reticle.localScale = original * 1.6f;
+        rig.reticle.localScale = rig.baseScale * 1.6f;
         yield return new WaitForSeconds(0.08f);
-        if (rig.reticle != null) rig.reticle.localScale = original;
+        if (rig.reticle != null) rig.reticle.localScale = rig.baseScale;
+        rig.flashCoroutine = null;
     }
 
     void UpdateScoreboard()

@@ -168,6 +168,27 @@
     letter-spacing: 1px;
   }
 
+  #debugInfo {
+    position: absolute;
+    bottom: 20%;
+    left: 0; right: 0;
+    text-align: center;
+    color: #4a5560;
+    font-size: 12px;
+    pointer-events: none;
+    font-family: monospace;
+  }
+  #sensorWarning {
+    position: absolute;
+    bottom: 14%;
+    left: 16px; right: 16px;
+    text-align: center;
+    color: #ffcf6b;
+    font-size: 12px;
+    line-height: 1.5;
+    pointer-events: none;
+  }
+
   /* 下部トリガーエリア */
   #triggerArea {
     position: absolute;
@@ -222,6 +243,8 @@
 
     <div id="sight"><div id="sightCircle"></div></div>
     <div id="hint">画面をタップして発射</div>
+    <div id="debugInfo">β: -- / γ: --</div>
+    <div id="sensorWarning"></div>
 
     <div id="triggerArea"><div id="triggerLabel">FIRE</div></div>
     <div id="flash"></div>
@@ -249,6 +272,9 @@
   var scoreLabel = document.getElementById("scoreLabel");
   var recenterBtn = document.getElementById("recenterBtn");
   var flashEl = document.getElementById("flash");
+  var debugInfoEl = document.getElementById("debugInfo");
+  var sensorWarningEl = document.getElementById("sensorWarning");
+  var hasReceivedOrientation = false;
 
   startBtn.addEventListener("click", onStart);
   recenterBtn.addEventListener("click", function (e) {
@@ -309,12 +335,29 @@
     sendTimer = setInterval(sendAim, 70);
 
     unlockAudio();
+
+    // 3秒経ってもセンサーの値が一度も届かない場合は原因の見当をつけて警告表示する
+    setTimeout(function () {
+      if (hasReceivedOrientation) return;
+      var reason = window.isSecureContext
+        ? "ブラウザがセンサーの許可を出していない可能性があります。"
+        : "この接続はhttp（暗号化なし）のため、このブラウザではセンサーがブロックされている可能性があります。";
+      sensorWarningEl.textContent = "⚠ 傾きセンサーが検出できていません。" + reason;
+    }, 3000);
   }
 
   function onOrientation(e) {
+    debugInfoEl.textContent = "β: " + fmt(e.beta) + " / γ: " + fmt(e.gamma) +
+      " (secure=" + window.isSecureContext + ")";
     if (e.beta === null || e.gamma === null) return;
+    hasReceivedOrientation = true;
+    sensorWarningEl.textContent = "";
     latestOrientation.beta = e.beta;
     latestOrientation.gamma = e.gamma;
+  }
+
+  function fmt(v) {
+    return (v === null || v === undefined) ? "null" : v.toFixed(1);
   }
 
   function sendAim() {
