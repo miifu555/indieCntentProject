@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>スマホガン</title>
+<title>手裏剣スライド</title>
 <style>
   :root {
     color-scheme: dark;
@@ -189,33 +189,93 @@
     pointer-events: none;
   }
 
-  /* 下部トリガーエリア */
+  /* ---------- 手裏剣の見た目(共通) ---------- */
+  .shuriken {
+    position: relative;
+    width: 46px;
+    height: 46px;
+    background: linear-gradient(135deg, #e7ecf3, #8f99a8);
+    clip-path: polygon(50% 0%, 65% 35%, 100% 50%, 65% 65%, 50% 100%, 35% 65%, 0% 50%, 35% 35%);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+  }
+  .shuriken::after {
+    content: "";
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 10px; height: 10px;
+    background: #05060a;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+  }
+
+  /* 下部スライドエリア */
   #triggerArea {
     position: absolute;
     left: 0; right: 0; bottom: 0;
     height: 34%;
     background: linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.05) 100%);
     display: flex;
-    align-items: center;
+    align-items: flex-end;
+    justify-content: center;
+    padding-bottom: max(28px, env(safe-area-inset-bottom));
+  }
+  #slideTrack {
+    position: relative;
+    width: 100px;
+    height: 170px;
+    display: flex;
+    align-items: flex-end;
     justify-content: center;
   }
-  #triggerLabel {
-    font-size: 15px;
+  #slideHint {
+    position: absolute;
+    top: -6px;
+    left: 0; right: 0;
+    text-align: center;
+    font-size: 13px;
     font-weight: bold;
-    letter-spacing: 6px;
-    color: rgba(255,255,255,0.35);
+    letter-spacing: 3px;
+    color: rgba(255,255,255,0.4);
+    transition: opacity 0.15s;
+  }
+  #shurikenHandle {
+    position: absolute;
+    bottom: 0;
+    touch-action: none;
+    will-change: transform;
+  }
+  #shurikenHandle.dragging {
+    filter: drop-shadow(0 0 10px rgba(255,255,255,0.35));
   }
 
-  /* マズルフラッシュ演出 */
-  #flash {
+  /* 投擲演出(スライドエリアから照準へ飛んでいく手裏剣) */
+  #flyingShuriken {
+    position: absolute;
+    left: 50%;
+    bottom: 62px;
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(-50%, 0) rotate(0deg);
+  }
+  #flyingShuriken.show {
+    animation: throwAnim 0.5s cubic-bezier(.25, .65, .3, 1) forwards;
+  }
+  @keyframes throwAnim {
+    0%   { opacity: 1; transform: translate(-50%, 0) rotate(0deg) scale(1); }
+    70%  { opacity: 1; }
+    100% { opacity: 0; transform: translate(-50%, -58vh) rotate(900deg) scale(0.55); }
+  }
+
+  /* 着弾演出 */
+  #impactFlash {
     position: absolute;
     inset: 0;
-    background: radial-gradient(circle at 50% 45%, rgba(255,210,120,0.9) 0%, rgba(255,140,60,0.35) 35%, rgba(255,140,60,0) 65%);
+    background: radial-gradient(circle at 50% 42%, rgba(220,235,255,0.85) 0%, rgba(140,180,255,0.3) 35%, rgba(140,180,255,0) 62%);
     opacity: 0;
     pointer-events: none;
   }
-  #flash.show {
-    animation: flashAnim 0.15s ease-out;
+  #impactFlash.show {
+    animation: flashAnim 0.18s ease-out;
   }
   @keyframes flashAnim {
     0%   { opacity: 1; }
@@ -227,10 +287,10 @@
 <div id="app">
 
   <div id="startScreen">
-    <h1>📱 スマホガン</h1>
-    <p>スマホを銃に見立てて、画面の的を狙い撃つ射的ゲームです。<br>
-       スマホを構えて画面をタップすると発射します。</p>
-    <button id="startBtn">銃を構える</button>
+    <h1>🥷 手裏剣スライド</h1>
+    <p>スマホを手裏剣に見立てて、画面の的を狙い撃つ的当てゲームです。<br>
+       スマホを構えて、画面下の手裏剣を下から上にスライドすると投げます。</p>
+    <button id="startBtn">手裏剣を構える</button>
     <div id="startError"></div>
   </div>
 
@@ -242,12 +302,18 @@
     </div>
 
     <div id="sight"><div id="sightCircle"></div></div>
-    <div id="hint">画面をタップして発射</div>
+    <div id="hint">下から上にスライドして手裏剣を投げる</div>
     <div id="debugInfo">β: -- / γ: --</div>
     <div id="sensorWarning"></div>
 
-    <div id="triggerArea"><div id="triggerLabel">FIRE</div></div>
-    <div id="flash"></div>
+    <div id="triggerArea">
+      <div id="slideTrack">
+        <div id="slideHint">↑ スライド</div>
+        <div id="shurikenHandle" class="shuriken"></div>
+      </div>
+    </div>
+    <div id="flyingShuriken" class="shuriken"></div>
+    <div id="impactFlash"></div>
   </div>
 
 </div>
@@ -271,10 +337,20 @@
   var statusText = document.getElementById("statusText");
   var scoreLabel = document.getElementById("scoreLabel");
   var recenterBtn = document.getElementById("recenterBtn");
-  var flashEl = document.getElementById("flash");
+  var slideTrack = document.getElementById("slideTrack");
+  var shurikenHandle = document.getElementById("shurikenHandle");
+  var slideHintEl = document.getElementById("slideHint");
+  var flyingShurikenEl = document.getElementById("flyingShuriken");
+  var impactFlashEl = document.getElementById("impactFlash");
   var debugInfoEl = document.getElementById("debugInfo");
   var sensorWarningEl = document.getElementById("sensorWarning");
   var hasReceivedOrientation = false;
+
+  var DRAG_RANGE = 120;     // スライドできる最大距離(px)
+  var DRAG_THRESHOLD = 70;  // これ以上スライドしたら投げる(px)
+  var dragging = false;
+  var dragStartY = 0;
+  var dragDistance = 0;
 
   startBtn.addEventListener("click", onStart);
   recenterBtn.addEventListener("click", function (e) {
@@ -282,8 +358,12 @@
     pendingRecenter = true;
   });
 
-  gameScreen.addEventListener("touchstart", onFire, { passive: true });
-  gameScreen.addEventListener("click", onFire);
+  shurikenHandle.addEventListener("touchstart", onDragStart, { passive: true });
+  shurikenHandle.addEventListener("mousedown", onDragStart);
+  window.addEventListener("touchmove", onDragMove, { passive: true });
+  window.addEventListener("touchend", onDragEnd);
+  window.addEventListener("mousemove", onDragMove);
+  window.addEventListener("mouseup", onDragEnd);
 
   function onStart() {
     startBtn.disabled = true;
@@ -384,12 +464,52 @@
       .catch(function () { /* 通信瞬断は無視して次回送信に任せる */ });
   }
 
-  function onFire(e) {
-    if (e.target === recenterBtn) return;
+  function clientYOf(e) {
+    if (e.touches && e.touches.length) return e.touches[0].clientY;
+    if (e.changedTouches && e.changedTouches.length) return e.changedTouches[0].clientY;
+    return e.clientY;
+  }
+
+  function onDragStart(e) {
+    if (!playerId) return;
+    dragging = true;
+    dragStartY = clientYOf(e);
+    dragDistance = 0;
+    shurikenHandle.classList.add("dragging");
+  }
+
+  function onDragMove(e) {
+    if (!dragging) return;
+    var delta = dragStartY - clientYOf(e); // 上方向が正
+    dragDistance = Math.max(0, Math.min(DRAG_RANGE, delta));
+    shurikenHandle.style.transform = "translateY(-" + dragDistance + "px)";
+    slideHintEl.style.opacity = String(Math.max(0, 1 - dragDistance / DRAG_RANGE));
+  }
+
+  function onDragEnd() {
+    if (!dragging) return;
+    dragging = false;
+    shurikenHandle.classList.remove("dragging");
+
+    if (dragDistance >= DRAG_THRESHOLD) {
+      onThrow();
+    }
+    resetHandle();
+    dragDistance = 0;
+  }
+
+  function resetHandle() {
+    shurikenHandle.style.transition = "transform 0.18s ease-out";
+    shurikenHandle.style.transform = "translateY(0)";
+    slideHintEl.style.opacity = "1";
+    setTimeout(function () { shurikenHandle.style.transition = ""; }, 200);
+  }
+
+  function onThrow() {
     if (!playerId) return;
 
-    playMuzzleFlash();
-    playGunSound();
+    playThrowEffect();
+    playThrowSound();
     if (navigator.vibrate) navigator.vibrate(35);
 
     fetch(API_BASE + "/fire", {
@@ -399,11 +519,17 @@
     }).catch(function () { /* ignore */ });
   }
 
-  function playMuzzleFlash() {
-    flashEl.classList.remove("show");
+  function playThrowEffect() {
+    flyingShurikenEl.classList.remove("show");
     // reflowで再トリガー
-    void flashEl.offsetWidth;
-    flashEl.classList.add("show");
+    void flyingShurikenEl.offsetWidth;
+    flyingShurikenEl.classList.add("show");
+
+    setTimeout(function () {
+      impactFlashEl.classList.remove("show");
+      void impactFlashEl.offsetWidth;
+      impactFlashEl.classList.add("show");
+    }, 380);
   }
 
   function unlockAudio() {
@@ -415,30 +541,31 @@
     }
   }
 
-  // 外部音源を使わず、ノイズバーストで簡易的な発砲音を合成する
-  function playGunSound() {
+  // 外部音源を使わず、ノイズのバンドパス掃引で「シュッ」という投擲音と金属的な着弾音を合成する
+  function playThrowSound() {
     if (!audioCtx) return;
     if (audioCtx.state === "suspended") audioCtx.resume();
 
-    var duration = 0.12;
+    var duration = 0.28;
     var bufferSize = Math.floor(audioCtx.sampleRate * duration);
     var buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
     var data = buffer.getChannelData(0);
     for (var i = 0; i < bufferSize; i++) {
-      var decay = 1 - i / bufferSize;
-      data[i] = (Math.random() * 2 - 1) * decay * decay;
+      data[i] = Math.random() * 2 - 1;
     }
 
     var noise = audioCtx.createBufferSource();
     noise.buffer = buffer;
 
     var filter = audioCtx.createBiquadFilter();
-    filter.type = "lowpass";
-    filter.frequency.setValueAtTime(3200, audioCtx.currentTime);
-    filter.frequency.exponentialRampToValueAtTime(400, audioCtx.currentTime + duration);
+    filter.type = "bandpass";
+    filter.Q.setValueAtTime(6, audioCtx.currentTime);
+    filter.frequency.setValueAtTime(800, audioCtx.currentTime);
+    filter.frequency.linearRampToValueAtTime(4500, audioCtx.currentTime + duration * 0.5);
+    filter.frequency.linearRampToValueAtTime(1200, audioCtx.currentTime + duration);
 
     var gain = audioCtx.createGain();
-    gain.gain.setValueAtTime(1, audioCtx.currentTime);
+    gain.gain.setValueAtTime(0.9, audioCtx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
 
     noise.connect(filter);
@@ -446,6 +573,21 @@
     gain.connect(audioCtx.destination);
     noise.start();
     noise.stop(audioCtx.currentTime + duration);
+
+    // 着弾時の金属的な「ピン」音を少し遅らせて重ねる
+    var ping = audioCtx.createOscillator();
+    ping.type = "triangle";
+    ping.frequency.setValueAtTime(1800, audioCtx.currentTime + duration * 0.7);
+
+    var pingGain = audioCtx.createGain();
+    pingGain.gain.setValueAtTime(0, audioCtx.currentTime);
+    pingGain.gain.setValueAtTime(0.25, audioCtx.currentTime + duration * 0.7);
+    pingGain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration + 0.15);
+
+    ping.connect(pingGain);
+    pingGain.connect(audioCtx.destination);
+    ping.start(audioCtx.currentTime + duration * 0.7);
+    ping.stop(audioCtx.currentTime + duration + 0.2);
   }
 })();
 </script>
