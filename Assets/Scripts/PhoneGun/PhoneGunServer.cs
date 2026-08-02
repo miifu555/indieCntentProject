@@ -1,6 +1,8 @@
 using System;
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Security;
@@ -11,6 +13,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading;
 using UnityEngine;
+using Debug = UnityEngine.Debug;
 
 // スマホをQRコードで開かせ、ジャイロの傾きとタップをHTTPSで受け取るローカルサーバー。
 // 自己署名証明書によるTLSを自前実装しているのは、HttpListenerでのHTTPS化にはOSへの
@@ -30,9 +33,22 @@ public class PhoneGunServer : MonoBehaviour
     public string certificateRelativePath = "PhoneGun/server.pfx";
     private const string CertificatePassword = "phonegun";
 
+    [Header("ngrok設定（インターネット越しの接続用）")]
+    [Tooltip("有効にすると、同一Wi-Fiでなくてもインターネット経由でスマホから接続できるようにngrokトンネルを自動起動する")]
+    public bool enableNgrok = false;
+    [Tooltip("ngrok実行ファイルのパス。PATHが通っていれば'ngrok'のままでよい")]
+    public string ngrokPath = "ngrok";
+    [Tooltip("ngrokが転送してくる先のローカルポート（TLSポートとは別に、平文HTTPで待ち受ける）")]
+    public int ngrokLocalPort = 8788;
+    [Tooltip("ngrokのローカル管理API（トンネルURLの問い合わせ先）のポート")]
+    public int ngrokApiPort = 4040;
+
     // 起動後に確定するスマホ接続用URL（QRコード化して使う）。自己署名証明書のため
     // スマホ側で「安全ではない接続」の警告を一度だけ許可してもらう必要がある。
     public string ServerUrl { get; private set; } = "";
+    // ngrok経由の公開URL（https、ngrokが正規の証明書を提供するため警告は出ない）。
+    // 確立するまでは空文字列。
+    public string PublicUrl { get; private set; } = "";
     public bool IsRunning { get; private set; }
 
     [Serializable]
@@ -45,6 +61,7 @@ public class PhoneGunServer : MonoBehaviour
 
     public struct AimData
     {
+        public float alpha;
         public float beta;
         public float gamma;
         public bool recenter;
@@ -54,6 +71,7 @@ public class PhoneGunServer : MonoBehaviour
     private class AimPayload
     {
         public string id;
+        public float alpha;
         public float beta;
         public float gamma;
         public bool recenter;
@@ -76,12 +94,15 @@ public class PhoneGunServer : MonoBehaviour
     private readonly ConcurrentQueue<string> fireQueue = new ConcurrentQueue<string>();
     private readonly ConcurrentQueue<string> joinQueue = new ConcurrentQueue<string>();
 
-    private TcpListener listener;
-    private Thread listenerThread;
+    private TcpListener tlsListener;
+    private Thread tlsListenerThread;
+    private TcpListener plainListener;
+    private Thread plainListenerThread;
     private X509Certificate2 serverCertificate;
     private string htmlContent;
     private volatile bool running;
     private int colorCounter;
+    private Process ngrokProcess;
 
     void Awake()
     {
@@ -151,8 +172,8 @@ public class PhoneGunServer : MonoBehaviour
         try
         {
             serverCertificate = LoadServerCertificate();
-            listener = new TcpListener(IPAddress.Any, port);
-            listener.Start();
+            tlsListener = new TcpListener(IPAddress.Any, port);
+            tlsListener.Start();
         }
         catch (Exception e)
         {
@@ -163,32 +184,163 @@ public class PhoneGunServer : MonoBehaviour
 
         running = true;
         IsRunning = true;
-        listenerThread = new Thread(AcceptLoop) { IsBackground = true };
-        listenerThread.Start();
+        tlsListenerThread = new Thread(AcceptLoopTls) { IsBackground = true };
+        tlsListenerThread.Start();
 
         Debug.Log($"[PhoneGunServer] サーバー起動: {ServerUrl}  このURLをQRコード化してスマホで読み込んでください（同一Wi-Fi内のみ）。自己署名証明書のため、スマホ初回アクセス時は「詳細設定→このまま進む」等で警告を許可してください。");
+
+        if (enableNgrok)
+        {
+            StartPlainListenerForNgrok();
+            StartNgrok();
+        }
     }
 
-    void AcceptLoop()
+    // ngrokは自分自身が正規のHTTPS証明書を提供してくれるため、ngrokからこのPCへの
+    // 転送区間（ループバック内）は平文HTTPで十分。専用の別ポートで待ち受ける。
+    void StartPlainListenerForNgrok()
+    {
+        try
+        {
+            plainListener = new TcpListener(IPAddress.Loopback, ngrokLocalPort);
+            plainListener.Start();
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[PhoneGunServer] ngrok用の平文HTTPポート({ngrokLocalPort})の起動に失敗しました。\n{e}");
+            return;
+        }
+
+        plainListenerThread = new Thread(AcceptLoopPlain) { IsBackground = true };
+        plainListenerThread.Start();
+    }
+
+    void StartNgrok()
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = ngrokPath,
+                Arguments = $"http {ngrokLocalPort} --log=stdout",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+            ngrokProcess = Process.Start(psi);
+
+            // ngrok側の出力を捨てずにUnityコンソールへ流す（トンネル失敗時の原因調査用）
+            ngrokProcess.OutputDataReceived += (s, e) =>
+            {
+                if (!string.IsNullOrEmpty(e.Data)) Debug.Log($"[ngrok] {e.Data}");
+            };
+            ngrokProcess.ErrorDataReceived += (s, e) =>
+            {
+                if (!string.IsNullOrEmpty(e.Data)) Debug.LogWarning($"[ngrok:stderr] {e.Data}");
+            };
+            ngrokProcess.BeginOutputReadLine();
+            ngrokProcess.BeginErrorReadLine();
+            ngrokProcess.EnableRaisingEvents = true;
+            ngrokProcess.Exited += (s, e) =>
+            {
+                Debug.LogWarning($"[PhoneGunServer] ngrokプロセスが終了しました（ExitCode={ngrokProcess.ExitCode}）。");
+            };
+
+            StartCoroutine(PollNgrokPublicUrl());
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[PhoneGunServer] ngrokの起動に失敗しました。ngrokがインストールされ、PATHが通っているか確認してください。\n{e}");
+        }
+    }
+
+    [Serializable] private class NgrokTunnel { public string public_url; public string proto; }
+    [Serializable] private class NgrokTunnelsResponse { public NgrokTunnel[] tunnels; }
+
+    IEnumerator PollNgrokPublicUrl()
+    {
+        string apiUrl = $"http://127.0.0.1:{ngrokApiPort}/api/tunnels";
+        float timeout = 20f;
+        float elapsed = 0f;
+
+        while (elapsed < timeout)
+        {
+            yield return new WaitForSeconds(1f);
+            elapsed += 1f;
+
+            string json = null;
+            try
+            {
+                using (var wc = new System.Net.WebClient())
+                {
+                    json = wc.DownloadString(apiUrl);
+                }
+            }
+            catch
+            {
+                continue; // ngrokがまだAPIを起動していない等。次のポーリングへ
+            }
+
+            NgrokTunnelsResponse response = null;
+            try { response = JsonUtility.FromJson<NgrokTunnelsResponse>(json); } catch { }
+
+            if (response?.tunnels != null)
+            {
+                foreach (var t in response.tunnels)
+                {
+                    if (t.proto == "https" && !string.IsNullOrEmpty(t.public_url))
+                    {
+                        PublicUrl = t.public_url + "/";
+                        Debug.Log($"[PhoneGunServer] ngrokトンネル確立: {PublicUrl}  このURLならインターネット経由でも接続できます。");
+                        yield break;
+                    }
+                }
+            }
+        }
+
+        Debug.LogWarning("[PhoneGunServer] ngrokの公開URL取得がタイムアウトしました。ngrokが正しく起動しているか、認証トークンが設定されているか確認してください。");
+    }
+
+    void AcceptLoopTls()
     {
         while (running)
         {
             TcpClient client;
             try
             {
-                client = listener.AcceptTcpClient();
+                client = tlsListener.AcceptTcpClient();
             }
             catch
             {
                 break; // Stop()されるとAcceptTcpClientが例外を投げてループを抜ける
             }
 
-            var clientThread = new Thread(() => HandleClient(client)) { IsBackground = true };
+            var clientThread = new Thread(() => HandleTlsClient(client)) { IsBackground = true };
             clientThread.Start();
         }
     }
 
-    void HandleClient(TcpClient client)
+    void AcceptLoopPlain()
+    {
+        while (running)
+        {
+            TcpClient client;
+            try
+            {
+                client = plainListener.AcceptTcpClient();
+            }
+            catch
+            {
+                break;
+            }
+
+            var clientThread = new Thread(() => HandlePlainClient(client)) { IsBackground = true };
+            clientThread.Start();
+        }
+    }
+
+    void HandleTlsClient(TcpClient client)
     {
         try
         {
@@ -204,19 +356,40 @@ public class PhoneGunServer : MonoBehaviour
                     return; // TLSハンドシェイクに失敗した接続は静かに切る（暗号化されていない誤アクセス等）
                 }
 
-                if (!TryReadHttpRequest(sslStream, out string method, out string path, out string body))
-                {
-                    return;
-                }
-
-                Route(method, path, body, out int statusCode, out string contentType, out string responseBody);
-                WriteHttpResponse(sslStream, statusCode, contentType, responseBody);
+                ProcessHttp(sslStream);
             }
         }
         catch (Exception e)
         {
             Debug.LogWarning($"[PhoneGunServer] リクエスト処理中にエラー: {e.Message}");
         }
+    }
+
+    void HandlePlainClient(TcpClient client)
+    {
+        try
+        {
+            using (client)
+            using (var stream = client.GetStream())
+            {
+                ProcessHttp(stream);
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"[PhoneGunServer] リクエスト処理中にエラー(ngrok経由): {e.Message}");
+        }
+    }
+
+    void ProcessHttp(Stream stream)
+    {
+        if (!TryReadHttpRequest(stream, out string method, out string path, out string body))
+        {
+            return;
+        }
+
+        Route(method, path, body, out int statusCode, out string contentType, out string responseBody);
+        WriteHttpResponse(stream, statusCode, contentType, responseBody);
     }
 
     bool TryReadHttpRequest(Stream stream, out string method, out string path, out string body)
@@ -361,7 +534,7 @@ public class PhoneGunServer : MonoBehaviour
             return "{\"ok\":false}";
         }
 
-        latestAim[payload.id] = new AimData { beta = payload.beta, gamma = payload.gamma, recenter = payload.recenter };
+        latestAim[payload.id] = new AimData { alpha = payload.alpha, beta = payload.beta, gamma = payload.gamma, recenter = payload.recenter };
         int score = players[payload.id].score;
         statusCode = 200;
         return $"{{\"ok\":true,\"score\":{score}}}";
@@ -408,12 +581,26 @@ public class PhoneGunServer : MonoBehaviour
         running = false;
         try
         {
-            listener?.Stop();
+            tlsListener?.Stop();
+        }
+        catch { }
+        try
+        {
+            plainListener?.Stop();
         }
         catch { }
         try
         {
             serverCertificate?.Dispose();
+        }
+        catch { }
+        try
+        {
+            if (ngrokProcess != null && !ngrokProcess.HasExited)
+            {
+                ngrokProcess.Kill();
+            }
+            ngrokProcess?.Dispose();
         }
         catch { }
         IsRunning = false;

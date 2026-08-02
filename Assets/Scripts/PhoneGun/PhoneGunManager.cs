@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Text;
@@ -16,6 +17,7 @@ public class PhoneGunManager : MonoBehaviour
     public GameObject reticlePrefab; // Image + TMP_Text(番号)を含むプレファブ（中心アンカー推奨）
     public TMP_Text connectionInfoText; // 接続用URL表示
     public TMP_Text scoreboardText; // スコア一覧表示
+    public RawImage qrCodeImage; // 接続用URLのQRコード表示（任意）
 
     [Header("照準設定")]
     [Tooltip("スマホの傾き1度あたりのレティクル移動量(px)")]
@@ -28,6 +30,24 @@ public class PhoneGunManager : MonoBehaviour
     [Header("的設定")]
     public LayerMask targetLayer = ~0;
     public float raycastMaxDistance = 200f;
+    [Tooltip("命中判定の許容半径（大きいほど当てやすくなる）")]
+    public float hitRadius = 0.5f;
+
+    [Header("手裏剣プレファブ（実体を投げる）")]
+    [Tooltip("実際に3D空間を飛んでいく手裏剣のプレファブ")]
+    public GameObject shurikenPrefab;
+    [Tooltip("手裏剣の飛行速度(m/s)")]
+    public float shurikenSpeed = 40f;
+    [Tooltip("手裏剣が飛びながら回転する速さ(度/秒)")]
+    public float shurikenSpinSpeed = 720f;
+    [Tooltip("投擲の開始位置。未設定ならカメラの位置から発射する")]
+    public Transform throwOrigin;
+
+    [Header("発砲エフェクト（レティクル側）")]
+    [Tooltip("発砲時にレティクルが何倍に拡大されるか")]
+    public float fireFlashScale = 2.6f;
+    [Tooltip("発砲エフェクトが元の大きさに戻るまでの秒数")]
+    public float fireFlashDuration = 0.15f;
 
     private class PlayerRig
     {
@@ -38,7 +58,7 @@ public class PhoneGunManager : MonoBehaviour
         public TMP_Text label;
         public bool calibrated;
         public float centerBeta;
-        public float centerGamma;
+        public float centerAlpha;
         public Vector2 currentOffset;
         public Vector3 baseScale;
         public Coroutine flashCoroutine;
@@ -46,6 +66,7 @@ public class PhoneGunManager : MonoBehaviour
 
     private readonly Dictionary<string, PlayerRig> rigs = new Dictionary<string, PlayerRig>();
     private readonly List<string> playerOrder = new List<string>();
+    private string lastQrUrl = "";
 
     void Start()
     {
@@ -79,11 +100,21 @@ public class PhoneGunManager : MonoBehaviour
 
     void UpdateConnectionInfo()
     {
-        if (connectionInfoText == null) return;
+        // ngrokの公開URLが確立していればそちらを優先する（正規の証明書で警告が出ないため）
+        string url = !string.IsNullOrEmpty(server.PublicUrl) ? server.PublicUrl : server.ServerUrl;
+        bool ready = server.IsRunning && !string.IsNullOrEmpty(url);
 
-        connectionInfoText.text = server.IsRunning && !string.IsNullOrEmpty(server.ServerUrl)
-            ? "接続先: " + server.ServerUrl
-            : "サーバー起動中...";
+        if (connectionInfoText != null)
+        {
+            connectionInfoText.text = ready ? "接続先: " + url : "サーバー起動中...";
+        }
+
+        if (qrCodeImage != null && ready && url != lastQrUrl)
+        {
+            lastQrUrl = url;
+            var tex = QrCodeTexture.Generate(url);
+            qrCodeImage.texture = tex;
+        }
     }
 
     void SpawnRig(string id)
@@ -126,14 +157,17 @@ public class PhoneGunManager : MonoBehaviour
         if (!rig.calibrated || aim.recenter)
         {
             rig.centerBeta = aim.beta;
-            rig.centerGamma = aim.gamma;
+            rig.centerAlpha = aim.alpha;
             rig.calibrated = true;
         }
 
-        float dBeta = aim.beta - rig.centerBeta;   // 前後の傾き -> 上下移動
-        float dGamma = aim.gamma - rig.centerGamma; // 左右の傾き -> 左右移動
+        float dBeta = aim.beta - rig.centerBeta; // 前後の傾き -> 上下移動
+        // 体を横に振る(コンパス回転)動きで左右を狙う。alphaは0-360で一周するため
+        // Mathf.DeltaAngleで最短差分に正規化してから使う（360度付近での跳ねを防ぐ）
+        float dAlpha = Mathf.DeltaAngle(rig.centerAlpha, aim.alpha);
 
-        Vector2 target = new Vector2(dGamma * sensitivity, -dBeta * sensitivity);
+        // 上下・左右とも体感と逆だったため反転
+        Vector2 target = new Vector2(-dAlpha * sensitivity, dBeta * sensitivity);
         target = Vector2.ClampMagnitude(target, maxOffset);
 
         rig.currentOffset = Vector2.Lerp(rig.currentOffset, target, 1f - Mathf.Exp(-followSpeed * Time.deltaTime));
@@ -147,18 +181,7 @@ public class PhoneGunManager : MonoBehaviour
         Vector2 screenPos = RectTransformUtility.WorldToScreenPoint(null, rig.reticle.position);
         Ray ray = aimCamera.ScreenPointToRay(screenPos);
 
-        if (Physics.Raycast(ray, out RaycastHit hit, raycastMaxDistance, targetLayer))
-        {
-            var target = hit.collider.GetComponentInParent<ShootingTarget>();
-            if (target != null)
-            {
-                int gained = target.Hit(hit.point);
-                if (gained > 0)
-                {
-                    server.AddScore(id, gained);
-                }
-            }
-        }
+        SpawnShuriken(id, ray);
 
         // 連打で複数のフラッシュ演出が重なると拡大率が積み上がってしまうため、
         // 直前の演出を止めてから常に基準スケールを起点にやり直す
@@ -169,12 +192,57 @@ public class PhoneGunManager : MonoBehaviour
         rig.flashCoroutine = StartCoroutine(FlashReticle(rig));
     }
 
+    // レティクルが狙っている方向へ実際に手裏剣を飛ばす。命中判定は手裏剣自身が飛行中に行い、
+    // 命中した瞬間にコールバック経由でスコアを加算する（見た目と判定のタイミングを一致させるため）。
+    void SpawnShuriken(string id, Ray aimRay)
+    {
+        if (shurikenPrefab == null) return;
+
+        Vector3 spawnPos = throwOrigin != null ? throwOrigin.position : aimRay.origin;
+        Vector3 aimPoint = aimRay.origin + aimRay.direction * Mathf.Max(raycastMaxDistance, 1f);
+        Vector3 direction = aimPoint - spawnPos;
+
+        GameObject go = Instantiate(shurikenPrefab, spawnPos, Quaternion.identity);
+        ThrownShuriken thrown = go.GetComponent<ThrownShuriken>();
+        if (thrown == null) thrown = go.AddComponent<ThrownShuriken>();
+
+        thrown.Init(direction, shurikenSpeed, raycastMaxDistance, hitRadius, targetLayer, shurikenSpinSpeed, hit =>
+        {
+            var target = hit.collider.GetComponentInParent<ShootingTarget>();
+            if (target != null)
+            {
+                int gained = target.Hit(hit.point);
+                if (gained > 0)
+                {
+                    server.AddScore(id, gained);
+                }
+            }
+        });
+    }
+
     IEnumerator FlashReticle(PlayerRig rig)
     {
         if (rig.reticle == null) yield break;
-        rig.reticle.localScale = rig.baseScale * 1.6f;
-        yield return new WaitForSeconds(0.08f);
-        if (rig.reticle != null) rig.reticle.localScale = rig.baseScale;
+
+        float elapsed = 0f;
+
+        while (elapsed < fireFlashDuration)
+        {
+            if (rig.reticle == null) yield break;
+            float t = elapsed / fireFlashDuration;
+
+            // 前半で拡大、後半で元のサイズへ戻すことで「飛び出す」感を出す
+            float scaleT = t < 0.3f ? t / 0.3f : 1f - (t - 0.3f) / 0.7f;
+            rig.reticle.localScale = Vector3.Lerp(rig.baseScale, rig.baseScale * fireFlashScale, scaleT);
+
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        if (rig.reticle != null)
+        {
+            rig.reticle.localScale = rig.baseScale;
+        }
         rig.flashCoroutine = null;
     }
 

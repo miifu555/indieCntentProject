@@ -125,38 +125,6 @@
     font-size: 12px;
   }
 
-  /* 中央の照準(装飾) */
-  #sight {
-    position: absolute;
-    top: 42%;
-    left: 50%;
-    width: 70px;
-    height: 70px;
-    transform: translate(-50%, -50%);
-    pointer-events: none;
-  }
-  #sight::before, #sight::after {
-    content: "";
-    position: absolute;
-    background: rgba(255,255,255,0.55);
-  }
-  #sight::before {
-    left: 50%; top: 0;
-    width: 2px; height: 100%;
-    transform: translateX(-50%);
-  }
-  #sight::after {
-    top: 50%; left: 0;
-    height: 2px; width: 100%;
-    transform: translateY(-50%);
-  }
-  #sightCircle {
-    position: absolute;
-    inset: 14px;
-    border: 2px solid rgba(255,255,255,0.5);
-    border-radius: 50%;
-  }
-
   #hint {
     position: absolute;
     bottom: 26%;
@@ -192,8 +160,8 @@
   /* ---------- 手裏剣の見た目(共通) ---------- */
   .shuriken {
     position: relative;
-    width: 46px;
-    height: 46px;
+    width: 68px;
+    height: 68px;
     background: linear-gradient(135deg, #e7ecf3, #8f99a8);
     clip-path: polygon(50% 0%, 65% 35%, 100% 50%, 65% 65%, 50% 100%, 35% 65%, 0% 50%, 35% 35%);
     box-shadow: 0 2px 8px rgba(0,0,0,0.5);
@@ -202,7 +170,7 @@
     content: "";
     position: absolute;
     top: 50%; left: 50%;
-    width: 10px; height: 10px;
+    width: 14px; height: 14px;
     background: #05060a;
     border-radius: 50%;
     transform: translate(-50%, -50%);
@@ -229,14 +197,23 @@
   }
   #slideHint {
     position: absolute;
-    top: -6px;
+    top: -76px;
     left: 0; right: 0;
     text-align: center;
-    font-size: 13px;
-    font-weight: bold;
-    letter-spacing: 3px;
-    color: rgba(255,255,255,0.4);
+    pointer-events: none;
     transition: opacity 0.15s;
+  }
+  #slideArrow {
+    display: inline-block;
+    font-size: 42px;
+    font-weight: bold;
+    line-height: 1;
+    color: rgba(255,255,255,0.65);
+    animation: slideArrowBounce 1s ease-in-out infinite;
+  }
+  @keyframes slideArrowBounce {
+    0%, 100% { transform: translateY(0); opacity: 0.5; }
+    50% { transform: translateY(-16px); opacity: 1; }
   }
   #shurikenHandle {
     position: absolute;
@@ -265,22 +242,6 @@
     70%  { opacity: 1; }
     100% { opacity: 0; transform: translate(-50%, -58vh) rotate(900deg) scale(0.55); }
   }
-
-  /* 着弾演出 */
-  #impactFlash {
-    position: absolute;
-    inset: 0;
-    background: radial-gradient(circle at 50% 42%, rgba(220,235,255,0.85) 0%, rgba(140,180,255,0.3) 35%, rgba(140,180,255,0) 62%);
-    opacity: 0;
-    pointer-events: none;
-  }
-  #impactFlash.show {
-    animation: flashAnim 0.18s ease-out;
-  }
-  @keyframes flashAnim {
-    0%   { opacity: 1; }
-    100% { opacity: 0; }
-  }
 </style>
 </head>
 <body>
@@ -301,19 +262,17 @@
       <button id="recenterBtn">照準リセット</button>
     </div>
 
-    <div id="sight"><div id="sightCircle"></div></div>
     <div id="hint">下から上にスライドして手裏剣を投げる</div>
     <div id="debugInfo">β: -- / γ: --</div>
     <div id="sensorWarning"></div>
 
     <div id="triggerArea">
       <div id="slideTrack">
-        <div id="slideHint">↑ スライド</div>
+        <div id="slideHint"><div id="slideArrow">↑</div></div>
         <div id="shurikenHandle" class="shuriken"></div>
       </div>
     </div>
     <div id="flyingShuriken" class="shuriken"></div>
-    <div id="impactFlash"></div>
   </div>
 
 </div>
@@ -324,7 +283,7 @@
 
   var API_BASE = window.location.origin;
   var playerId = null;
-  var latestOrientation = { beta: 0, gamma: 0 };
+  var latestOrientation = { alpha: 0, beta: 0, gamma: 0 };
   var pendingRecenter = true; // 初回送信時に必ずキャリブレーションさせる
   var sendTimer = null;
   var audioCtx = null;
@@ -337,17 +296,17 @@
   var statusText = document.getElementById("statusText");
   var scoreLabel = document.getElementById("scoreLabel");
   var recenterBtn = document.getElementById("recenterBtn");
+  var triggerArea = document.getElementById("triggerArea");
   var slideTrack = document.getElementById("slideTrack");
   var shurikenHandle = document.getElementById("shurikenHandle");
   var slideHintEl = document.getElementById("slideHint");
   var flyingShurikenEl = document.getElementById("flyingShuriken");
-  var impactFlashEl = document.getElementById("impactFlash");
   var debugInfoEl = document.getElementById("debugInfo");
   var sensorWarningEl = document.getElementById("sensorWarning");
   var hasReceivedOrientation = false;
 
   var DRAG_RANGE = 120;     // スライドできる最大距離(px)
-  var DRAG_THRESHOLD = 70;  // これ以上スライドしたら投げる(px)
+  var DRAG_THRESHOLD = 45;  // これ以上スライドしたら投げる(px)。短くして連投しやすくする
   var dragging = false;
   var dragStartY = 0;
   var dragDistance = 0;
@@ -358,8 +317,10 @@
     pendingRecenter = true;
   });
 
-  shurikenHandle.addEventListener("touchstart", onDragStart, { passive: true });
-  shurikenHandle.addEventListener("mousedown", onDragStart);
+  // 手裏剣本体だけでなく下部エリア全体をスワイプ開始できるようにして、
+  // 毎回小さいハンドルを狙わなくても連投できるようにする
+  triggerArea.addEventListener("touchstart", onDragStart, { passive: true });
+  triggerArea.addEventListener("mousedown", onDragStart);
   window.addEventListener("touchmove", onDragMove, { passive: true });
   window.addEventListener("touchend", onDragEnd);
   window.addEventListener("mousemove", onDragMove);
@@ -396,8 +357,12 @@
     return Promise.resolve(true);
   }
 
+  // ngrok無料プランは初回アクセス時に確認ページを挟むため、このヘッダーで
+  // fetch/XHR通信だけは確認ページをスキップして直接APIに届くようにする
+  var NGROK_SKIP_HEADERS = { "ngrok-skip-browser-warning": "true" };
+
   function joinServer() {
-    return fetch(API_BASE + "/join")
+    return fetch(API_BASE + "/join", { headers: NGROK_SKIP_HEADERS })
       .then(function (res) { return res.json(); })
       .then(function (data) {
         playerId = data.id;
@@ -427,11 +392,12 @@
   }
 
   function onOrientation(e) {
-    debugInfoEl.textContent = "β: " + fmt(e.beta) + " / γ: " + fmt(e.gamma) +
+    debugInfoEl.textContent = "α: " + fmt(e.alpha) + " β: " + fmt(e.beta) + " / γ: " + fmt(e.gamma) +
       " (secure=" + window.isSecureContext + ")";
     if (e.beta === null || e.gamma === null) return;
     hasReceivedOrientation = true;
     sensorWarningEl.textContent = "";
+    latestOrientation.alpha = e.alpha || 0;
     latestOrientation.beta = e.beta;
     latestOrientation.gamma = e.gamma;
   }
@@ -444,6 +410,7 @@
     if (!playerId) return;
     var payload = {
       id: playerId,
+      alpha: latestOrientation.alpha,
       beta: latestOrientation.beta,
       gamma: latestOrientation.gamma,
       recenter: pendingRecenter,
@@ -452,7 +419,7 @@
 
     fetch(API_BASE + "/aim", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: Object.assign({ "Content-Type": "application/json" }, NGROK_SKIP_HEADERS),
       body: JSON.stringify(payload),
     })
       .then(function (res) { return res.json(); })
@@ -499,10 +466,10 @@
   }
 
   function resetHandle() {
-    shurikenHandle.style.transition = "transform 0.18s ease-out";
+    shurikenHandle.style.transition = "transform 0.1s ease-out";
     shurikenHandle.style.transform = "translateY(0)";
     slideHintEl.style.opacity = "1";
-    setTimeout(function () { shurikenHandle.style.transition = ""; }, 200);
+    setTimeout(function () { shurikenHandle.style.transition = ""; }, 110);
   }
 
   function onThrow() {
@@ -514,7 +481,7 @@
 
     fetch(API_BASE + "/fire", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: Object.assign({ "Content-Type": "application/json" }, NGROK_SKIP_HEADERS),
       body: JSON.stringify({ id: playerId }),
     }).catch(function () { /* ignore */ });
   }
@@ -524,12 +491,6 @@
     // reflowで再トリガー
     void flyingShurikenEl.offsetWidth;
     flyingShurikenEl.classList.add("show");
-
-    setTimeout(function () {
-      impactFlashEl.classList.remove("show");
-      void impactFlashEl.offsetWidth;
-      impactFlashEl.classList.add("show");
-    }, 380);
   }
 
   function unlockAudio() {
