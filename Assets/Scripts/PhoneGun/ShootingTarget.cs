@@ -68,6 +68,15 @@ public class ShootingTarget : MonoBehaviour
         SetVisible(true);
     }
 
+    // TimeAttackManagerがフェーズ切り替え時に呼ぶ。倒れた状態や再出現待ちを打ち切り、
+    // 即座に「出現済み・命中可能」な状態へ戻す。
+    public void ResetTarget()
+    {
+        StopAllCoroutines();
+        isDown = false;
+        SetVisible(true);
+    }
+
     void SetVisible(bool visible)
     {
         if (col != null) col.enabled = visible;
