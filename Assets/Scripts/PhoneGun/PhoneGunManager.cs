@@ -54,6 +54,7 @@ public class PhoneGunManager : MonoBehaviour
         public string id;
         public int playerNumber;
         public RectTransform reticle;
+        public RectTransform visual; // 発砲時に拡大するのはこの子オブジェクトだけ（ラベルは常に等倍）
         public Image reticleImage;
         public TMP_Text label;
         public bool calibrated;
@@ -124,14 +125,18 @@ public class PhoneGunManager : MonoBehaviour
         GameObject go = Instantiate(reticlePrefab, reticleParent);
         var rt = go.GetComponent<RectTransform>();
 
+        Image reticleImage = go.GetComponentInChildren<Image>();
+        Transform visualTransform = reticleImage != null ? reticleImage.transform : rt;
+
         var rig = new PlayerRig
         {
             id = id,
             playerNumber = playerOrder.Count + 1,
             reticle = rt,
-            reticleImage = go.GetComponentInChildren<Image>(),
+            visual = visualTransform as RectTransform,
+            reticleImage = reticleImage,
             label = go.GetComponentInChildren<TMP_Text>(),
-            baseScale = rt.localScale,
+            baseScale = visualTransform.localScale,
         };
 
         if (server.TryGetPlayer(id, out var info))
@@ -222,26 +227,26 @@ public class PhoneGunManager : MonoBehaviour
 
     IEnumerator FlashReticle(PlayerRig rig)
     {
-        if (rig.reticle == null) yield break;
+        if (rig.visual == null) yield break;
 
         float elapsed = 0f;
 
         while (elapsed < fireFlashDuration)
         {
-            if (rig.reticle == null) yield break;
+            if (rig.visual == null) yield break;
             float t = elapsed / fireFlashDuration;
 
             // 前半で拡大、後半で元のサイズへ戻すことで「飛び出す」感を出す
             float scaleT = t < 0.3f ? t / 0.3f : 1f - (t - 0.3f) / 0.7f;
-            rig.reticle.localScale = Vector3.Lerp(rig.baseScale, rig.baseScale * fireFlashScale, scaleT);
+            rig.visual.localScale = Vector3.Lerp(rig.baseScale, rig.baseScale * fireFlashScale, scaleT);
 
             elapsed += Time.deltaTime;
             yield return null;
         }
 
-        if (rig.reticle != null)
+        if (rig.visual != null)
         {
-            rig.reticle.localScale = rig.baseScale;
+            rig.visual.localScale = rig.baseScale;
         }
         rig.flashCoroutine = null;
     }
