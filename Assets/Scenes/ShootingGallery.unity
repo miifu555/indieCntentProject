@@ -1505,7 +1505,7 @@ MonoBehaviour:
   scoreboardText: {fileID: 2145628624}
   qrCodeImage: {fileID: 531933981}
   sensitivity: 12
-  maxOffset: 600
+  maxOffset: 900
   followSpeed: 20
   targetLayer:
     serializedVersion: 2
@@ -1560,7 +1560,7 @@ RectTransform:
   m_GameObject: {fileID: 1054202327}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_LocalScale: {x: 1.8132, y: 1.8132, z: 1.8132}
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 531933983}
@@ -1568,7 +1568,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 0, y: 1}
-  m_AnchoredPosition: {x: 20, y: -60}
+  m_AnchoredPosition: {x: 15, y: -959}
   m_SizeDelta: {x: 180, y: 180}
   m_Pivot: {x: 0, y: 1}
 --- !u!114 &1054202329
@@ -2049,6 +2049,77 @@ Transform:
   - {fileID: 1523457741}
   - {fileID: 230019046}
   - {fileID: 1182179965}
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1230916797
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1230916799}
+  - component: {fileID: 1230916798}
+  m_Layer: 0
+  m_Name: TargetPhaseManager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1230916798
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1230916797}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9ba72d588dc22e2468bc7bbce914b560, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::TargetPhaseManager
+  phases:
+  - name: Phase 1
+    targets:
+    - {fileID: 1894288570}
+    - {fileID: 2136583404}
+    - {fileID: 1274403351}
+    - {fileID: 2129671551}
+    - {fileID: 1424832199}
+    duration: 15
+  - name: Phase 2
+    targets:
+    - {fileID: 684529197}
+    - {fileID: 277282835}
+    - {fileID: 1523457740}
+    - {fileID: 230019045}
+    - {fileID: 1182179964}
+    duration: 15
+  - name: Phase 3
+    targets:
+    - {fileID: 672605582}
+    - {fileID: 1111836710}
+    - {fileID: 1785350880}
+    - {fileID: 1081611357}
+    - {fileID: 1662072125}
+    duration: 15
+  loop: 1
+  playOnStart: 1
+--- !u!4 &1230916799
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1230916797}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1245613091
@@ -3916,3 +3987,4 @@ SceneRoots:
   - {fileID: 1316804338}
   - {fileID: 186834754}
   - {fileID: 877862190}
+  - {fileID: 1230916799}

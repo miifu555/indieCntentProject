@@ -40,8 +40,10 @@ public class PhoneGunManager : MonoBehaviour
     public float shurikenSpeed = 40f;
     [Tooltip("手裏剣が飛びながら回転する速さ(度/秒)")]
     public float shurikenSpinSpeed = 720f;
-    [Tooltip("投擲の開始位置。未設定ならカメラの位置から発射する")]
+    [Tooltip("投擲の開始位置。未設定ならカメラの位置を基準に発射する")]
     public Transform throwOrigin;
+    [Tooltip("throwOrigin未設定時、カメラの位置からどれだけ下にずらして発射するか（見やすくするため）")]
+    public float throwOriginCameraDownOffset = 1.5f;
 
     [Header("発砲エフェクト（レティクル側）")]
     [Tooltip("発砲時にレティクルが何倍に拡大されるか")]
@@ -203,7 +205,18 @@ public class PhoneGunManager : MonoBehaviour
     {
         if (shurikenPrefab == null) return;
 
-        Vector3 spawnPos = throwOrigin != null ? throwOrigin.position : aimRay.origin;
+        Vector3 spawnPos;
+        if (throwOrigin != null)
+        {
+            spawnPos = throwOrigin.position;
+        }
+        else
+        {
+            // カメラのすぐ位置からだと見えづらいため、カメラの下方向に少しずらして発射する
+            Vector3 down = aimCamera != null ? -aimCamera.transform.up : Vector3.down;
+            spawnPos = aimRay.origin + down * throwOriginCameraDownOffset;
+        }
+
         Vector3 aimPoint = aimRay.origin + aimRay.direction * Mathf.Max(raycastMaxDistance, 1f);
         Vector3 direction = aimPoint - spawnPos;
 
