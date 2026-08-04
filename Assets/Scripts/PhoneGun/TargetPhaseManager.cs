@@ -69,7 +69,13 @@ public class TargetPhaseManager : MonoBehaviour
         var phase = phases[CurrentPhaseIndex];
         foreach (var target in phase.targets)
         {
-            if (target != null) target.SetActive(true);
+            if (target == null) continue;
+            target.SetActive(true);
+            // 前回このフェーズが表示されていた間に倒れたまま(isDown)だった的を、
+            // 出現済み・命中可能な状態へ強制的に戻す。呼ばないと、非表示中に
+            // 再出現コルーチンが止まるため次のループで永久に復活しなくなる。
+            var shootingTarget = target.GetComponent<ShootingTarget>();
+            if (shootingTarget != null) shootingTarget.ResetTarget();
         }
 
         if (phase.duration > 0f)
