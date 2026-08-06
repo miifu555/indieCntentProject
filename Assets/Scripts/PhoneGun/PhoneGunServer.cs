@@ -32,6 +32,8 @@ public class PhoneGunServer : MonoBehaviour
     [Tooltip("StreamingAssets からの相対パス。TLS用の自己署名証明書（PFX）")]
     public string certificateRelativePath = "PhoneGun/server.pfx";
     private const string CertificatePassword = "phonegun";
+    [Tooltip("StreamingAssets からの相対パス。主催者がPCのブラウザで開く、QRコード+URL表示用ページ")]
+    public string displayHtmlRelativePath = "PhoneGun/display.html";
 
     [Header("ngrok設定（インターネット越しの接続用）")]
     [Tooltip("有効にすると、同一Wi-Fiでなくてもインターネット経由でスマホから接続できるようにngrokトンネルを自動起動する")]
@@ -100,9 +102,18 @@ public class PhoneGunServer : MonoBehaviour
     private Thread plainListenerThread;
     private X509Certificate2 serverCertificate;
     private string htmlContent;
+    private string displayHtmlContent;
     private volatile bool running;
     private int colorCounter;
     private Process ngrokProcess;
+
+    // QRコードPNGはメインスレッド(Texture2D)でしか生成できないため、PhoneGunManagerが
+    // URL確定時に生成してここへセットしたものを、バックグラウンドスレッドからは
+    // 読み取り専用でそのまま返す。参照の差し替えだけなのでロック不要。
+    public byte[] QrPngBytes { get; set; }
+
+    // /display ページが参照する現在の接続先URL（ngrokがあればそちらを優先）
+    public string DisplayUrl => !string.IsNullOrEmpty(PublicUrl) ? PublicUrl : ServerUrl;
 
     void Awake()
     {
@@ -132,6 +143,17 @@ public class PhoneGunServer : MonoBehaviour
         {
             Debug.LogError($"[PhoneGunServer] controller.htmlの読み込みに失敗しました: {path}\n{e}");
             htmlContent = "<html><body>controller.html not found</body></html>";
+        }
+
+        string displayPath = Path.Combine(Application.streamingAssetsPath, displayHtmlRelativePath);
+        try
+        {
+            displayHtmlContent = File.ReadAllText(displayPath, Encoding.UTF8);
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[PhoneGunServer] display.htmlの読み込みに失敗しました: {displayPath}\n{e}");
+            displayHtmlContent = "<html><body>display.html not found</body></html>";
         }
     }
 
@@ -388,6 +410,21 @@ public class PhoneGunServer : MonoBehaviour
             return;
         }
 
+        // QRコードのPNGはテキストではなくバイナリなので、専用の応答経路で処理する
+        if (method == "GET" && path == "/qr.png")
+        {
+            byte[] png = QrPngBytes;
+            if (png == null)
+            {
+                WriteHttpResponse(stream, 404, "text/plain", "qr not ready");
+            }
+            else
+            {
+                WriteHttpResponseBytes(stream, 200, "image/png", png);
+            }
+            return;
+        }
+
         Route(method, path, body, out int statusCode, out string contentType, out string responseBody);
         WriteHttpResponse(stream, statusCode, contentType, responseBody);
     }
@@ -478,6 +515,25 @@ public class PhoneGunServer : MonoBehaviour
         stream.Flush();
     }
 
+    void WriteHttpResponseBytes(Stream stream, int statusCode, string contentType, byte[] bodyBytes)
+    {
+        string statusText = statusCode == 200 ? "OK" : statusCode == 404 ? "Not Found" : "Bad Request";
+
+        var sb = new StringBuilder();
+        sb.Append($"HTTP/1.1 {statusCode} {statusText}\r\n");
+        sb.Append($"Content-Type: {contentType}\r\n");
+        sb.Append($"Content-Length: {bodyBytes.Length}\r\n");
+        sb.Append("Access-Control-Allow-Origin: *\r\n");
+        sb.Append("Cache-Control: no-store\r\n");
+        sb.Append("Connection: close\r\n");
+        sb.Append("\r\n");
+
+        byte[] headerBytes = Encoding.ASCII.GetBytes(sb.ToString());
+        stream.Write(headerBytes, 0, headerBytes.Length);
+        stream.Write(bodyBytes, 0, bodyBytes.Length);
+        stream.Flush();
+    }
+
     void Route(string method, string path, string body, out int statusCode, out string contentType, out string responseBody)
     {
         if (method == "GET" && path == "/")
@@ -485,6 +541,19 @@ public class PhoneGunServer : MonoBehaviour
             statusCode = 200;
             contentType = "text/html; charset=utf-8";
             responseBody = htmlContent;
+        }
+        else if (method == "GET" && path == "/display")
+        {
+            statusCode = 200;
+            contentType = "text/html; charset=utf-8";
+            responseBody = displayHtmlContent;
+        }
+        else if (method == "GET" && path == "/status")
+        {
+            statusCode = 200;
+            contentType = "application/json";
+            string url = DisplayUrl ?? "";
+            responseBody = $"{{\"url\":\"{url}\",\"running\":{(IsRunning ? "true" : "false")}}}";
         }
         else if (method == "GET" && path == "/join")
         {

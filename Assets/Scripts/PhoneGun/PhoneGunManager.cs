@@ -112,11 +112,19 @@ public class PhoneGunManager : MonoBehaviour
             connectionInfoText.text = ready ? "接続先: " + url : "サーバー起動中...";
         }
 
-        if (qrCodeImage != null && ready && url != lastQrUrl)
+        if (ready && url != lastQrUrl)
         {
             lastQrUrl = url;
             var tex = QrCodeTexture.Generate(url);
-            qrCodeImage.texture = tex;
+
+            // ゲーム画面上にQR表示用UIが割り当てられていれば従来通り表示する（任意）
+            if (qrCodeImage != null)
+            {
+                qrCodeImage.texture = tex;
+            }
+
+            // 主催者がPCのブラウザで開く /display ページ用に、PNGとしてサーバー側へ渡しておく
+            server.QrPngBytes = tex.EncodeToPNG();
         }
     }
 
