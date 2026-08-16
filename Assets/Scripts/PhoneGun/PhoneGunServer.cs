@@ -59,6 +59,9 @@ public class PhoneGunServer : MonoBehaviour
         public string id;
         public string colorHex;
         public int score;
+        // 非アクティブ判定用。/aim・/fireを受けるたびに更新する（バックグラウンドスレッドから
+        // 触るためUnityのTime系APIは使えず、System.DateTimeを使う）
+        public DateTime lastActivity;
     }
 
     public struct AimData
@@ -85,6 +88,13 @@ public class PhoneGunServer : MonoBehaviour
         public string id;
     }
 
+    [Serializable]
+    private class NamePayload
+    {
+        public string id;
+        public string name;
+    }
+
     private static readonly string[] PlayerColors =
     {
         "#ff4757", "#2ed573", "#1e90ff", "#ffa502",
@@ -95,6 +105,10 @@ public class PhoneGunServer : MonoBehaviour
     private readonly ConcurrentDictionary<string, AimData> latestAim = new ConcurrentDictionary<string, AimData>();
     private readonly ConcurrentQueue<string> fireQueue = new ConcurrentQueue<string>();
     private readonly ConcurrentQueue<string> joinQueue = new ConcurrentQueue<string>();
+    private readonly ConcurrentQueue<string> nameSubmissionQueue = new ConcurrentQueue<string>();
+
+    // ハイスコア名前入力を受け付ける対象プレイヤーのid。空文字なら誰も対象でない
+    public string PendingNameEntryPlayerId { get; private set; } = "";
 
     private TcpListener tlsListener;
     private Thread tlsListenerThread;
@@ -571,6 +585,11 @@ public class PhoneGunServer : MonoBehaviour
             responseBody = HandleFire(body, out statusCode);
             contentType = "application/json";
         }
+        else if (method == "POST" && path == "/name")
+        {
+            responseBody = HandleNameSubmit(body, out statusCode);
+            contentType = "application/json";
+        }
         else
         {
             statusCode = 404;
@@ -585,7 +604,7 @@ public class PhoneGunServer : MonoBehaviour
         int idx = Interlocked.Increment(ref colorCounter) - 1;
         string color = PlayerColors[idx % PlayerColors.Length];
 
-        var info = new PlayerInfo { id = id, colorHex = color, score = 0 };
+        var info = new PlayerInfo { id = id, colorHex = color, score = 0, lastActivity = DateTime.UtcNow };
         players[id] = info;
         joinQueue.Enqueue(id);
 
@@ -604,9 +623,46 @@ public class PhoneGunServer : MonoBehaviour
         }
 
         latestAim[payload.id] = new AimData { alpha = payload.alpha, beta = payload.beta, gamma = payload.gamma, recenter = payload.recenter };
+        players[payload.id].lastActivity = DateTime.UtcNow;
         int score = players[payload.id].score;
+        bool nameEntry = !string.IsNullOrEmpty(PendingNameEntryPlayerId) && payload.id == PendingNameEntryPlayerId;
         statusCode = 200;
-        return $"{{\"ok\":true,\"score\":{score}}}";
+        return $"{{\"ok\":true,\"score\":{score},\"nameEntry\":{(nameEntry ? "true" : "false")}}}";
+    }
+
+    string HandleNameSubmit(string body, out int statusCode)
+    {
+        NamePayload payload = null;
+        try { payload = JsonUtility.FromJson<NamePayload>(body); } catch { }
+
+        if (payload == null || string.IsNullOrEmpty(payload.id) ||
+            string.IsNullOrEmpty(PendingNameEntryPlayerId) || payload.id != PendingNameEntryPlayerId)
+        {
+            statusCode = 400;
+            return "{\"ok\":false}";
+        }
+
+        nameSubmissionQueue.Enqueue(SanitizeName(payload.name));
+        PendingNameEntryPlayerId = "";
+
+        statusCode = 200;
+        return "{\"ok\":true}";
+    }
+
+    // 半角英字のみ・大文字・3文字に丸める。不足分は?で埋める
+    string SanitizeName(string raw)
+    {
+        var sb = new StringBuilder();
+        if (!string.IsNullOrEmpty(raw))
+        {
+            foreach (char c in raw.ToUpperInvariant())
+            {
+                if (c >= 'A' && c <= 'Z') sb.Append(c);
+                if (sb.Length >= 3) break;
+            }
+        }
+        while (sb.Length < 3) sb.Append('?');
+        return sb.ToString();
     }
 
     string HandleFire(string body, out int statusCode)
@@ -620,6 +676,7 @@ public class PhoneGunServer : MonoBehaviour
             return "{\"ok\":false}";
         }
 
+        players[payload.id].lastActivity = DateTime.UtcNow;
         fireQueue.Enqueue(payload.id);
         statusCode = 200;
         return "{\"ok\":true}";
@@ -643,7 +700,46 @@ public class PhoneGunServer : MonoBehaviour
         }
     }
 
+    // 結果発表の後、次の回のために全員のスコアを0に戻す（接続自体は維持する）
+    public void ResetScores()
+    {
+        foreach (var info in players.Values)
+        {
+            info.score = 0;
+        }
+    }
+
+    // --- ハイスコア名前入力（GameFlowControllerが結果発表時に使う） ---
+
+    public void RequestNameEntry(string id) => PendingNameEntryPlayerId = id;
+
+    // タイムアウト等で入力を締め切る
+    public void CancelNameEntry() => PendingNameEntryPlayerId = "";
+
+    public bool TryDequeueNameSubmission(out string name) => nameSubmissionQueue.TryDequeue(out name);
+
     public IEnumerable<string> ConnectedPlayerIds => players.Keys;
+
+    // 一定時間 /aim・/fire が届いていない（スマホが離脱・接続断した）プレイヤーのidを返す
+    public List<string> GetInactivePlayerIds(float timeoutSeconds)
+    {
+        var result = new List<string>();
+        var now = DateTime.UtcNow;
+        foreach (var kv in players)
+        {
+            if ((now - kv.Value.lastActivity).TotalSeconds > timeoutSeconds)
+            {
+                result.Add(kv.Key);
+            }
+        }
+        return result;
+    }
+
+    public void RemovePlayer(string id)
+    {
+        players.TryRemove(id, out _);
+        latestAim.TryRemove(id, out _);
+    }
 
     void OnDestroy()
     {

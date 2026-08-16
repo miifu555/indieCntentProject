@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>お札スライド</title>
+<style>
+  :root {
+    color-scheme: dark;
+  }
+  * {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: #05060a;
+    color: #eee;
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif;
+    overflow: hidden;
+    touch-action: none;
+    overscroll-behavior: none;
+  }
+
+  #app {
+    position: fixed;
+    inset: 0;
+  }
+
+  /* ---------- スタート画面 ---------- */
+  #startScreen {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    padding: 24px;
+    text-align: center;
+    background: radial-gradient(circle at 50% 30%, #241a1a 0%, #05060a 70%);
+  }
+  #startScreen h1 {
+    font-size: 22px;
+    margin: 0 0 4px;
+    letter-spacing: 2px;
+  }
+  #startScreen p {
+    font-size: 14px;
+    color: #9aa4b2;
+    line-height: 1.6;
+    margin: 0;
+  }
+  #startBtn {
+    margin-top: 12px;
+    padding: 18px 48px;
+    font-size: 18px;
+    font-weight: bold;
+    border: none;
+    border-radius: 999px;
+    background: linear-gradient(180deg, #e0483f, #a01f1f);
+    color: #fff;
+    box-shadow: 0 8px 20px rgba(160, 31, 31, 0.45);
+    letter-spacing: 4px;
+  }
+  #startBtn:active {
+    transform: scale(0.97);
+  }
+  #startError {
+    color: #ff7676;
+    font-size: 13px;
+    min-height: 18px;
+  }
+
+  /* ---------- ゲーム画面 ---------- */
+  #gameScreen {
+    position: absolute;
+    inset: 0;
+    display: none;
+  }
+  #gameScreen.active {
+    display: block;
+  }
+
+  #topBar {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 16px;
+    padding-top: max(14px, env(safe-area-inset-top));
+    z-index: 10;
+    font-size: 13px;
+    color: #9aa4b2;
+  }
+  #statusDot {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #ff4757;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  #statusDot.connected {
+    background: #2ed573;
+  }
+  #scoreLabel {
+    font-size: 18px;
+    font-weight: bold;
+    color: #fff;
+  }
+  #recenterBtn {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.2);
+    color: #eee;
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+
+  #hint {
+    position: absolute;
+    bottom: 26%;
+    left: 0; right: 0;
+    text-align: center;
+    color: #6b7480;
+    font-size: 13px;
+    pointer-events: none;
+    letter-spacing: 1px;
+  }
+
+  #debugInfo {
+    position: absolute;
+    bottom: 20%;
+    left: 0; right: 0;
+    text-align: center;
+    color: #4a5560;
+    font-size: 12px;
+    pointer-events: none;
+    font-family: monospace;
+  }
+  #sensorWarning {
+    position: absolute;
+    bottom: 14%;
+    left: 16px; right: 16px;
+    text-align: center;
+    color: #ffcf6b;
+    font-size: 12px;
+    line-height: 1.5;
+    pointer-events: none;
+  }
+
+  /* ---------- お札の見た目(共通) ---------- */
+  .ofuda {
+    position: relative;
+    width: 52px;
+    height: 84px;
+    background: linear-gradient(180deg, #fdf6e3, #efe2ba);
+    border: 3px solid #b8262b;
+    border-radius: 3px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+  }
+  .ofuda::before {
+    content: "";
+    position: absolute;
+    top: 7px; left: 7px; right: 7px; bottom: 7px;
+    border: 1px solid #b8262b;
+    border-radius: 2px;
+  }
+  .ofuda::after {
+    content: "封";
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    writing-mode: vertical-rl;
+    color: #b8262b;
+    font-size: 22px;
+    font-weight: bold;
+    letter-spacing: 2px;
+  }
+
+  /* 下部スライドエリア */
+  #triggerArea {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 34%;
+    background: linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.05) 100%);
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding-bottom: max(28px, env(safe-area-inset-bottom));
+  }
+  #slideTrack {
+    position: relative;
+    width: 100px;
+    height: 170px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+  }
+  #slideHint {
+    position: absolute;
+    top: -76px;
+    left: 0; right: 0;
+    text-align: center;
+    pointer-events: none;
+    transition: opacity 0.15s;
+  }
+  #slideArrow {
+    display: inline-block;
+    font-size: 42px;
+    font-weight: bold;
+    line-height: 1;
+    color: rgba(255,255,255,0.65);
+    animation: slideArrowBounce 1s ease-in-out infinite;
+  }
+  @keyframes slideArrowBounce {
+    0%, 100% { transform: translateY(0); opacity: 0.5; }
+    50% { transform: translateY(-16px); opacity: 1; }
+  }
+  #ofudaHandle {
+    position: absolute;
+    bottom: 0;
+    touch-action: none;
+    will-change: transform;
+  }
+  #ofudaHandle.dragging {
+    filter: drop-shadow(0 0 10px rgba(255,255,255,0.35));
+  }
+
+  /* 投擲演出(スライドエリアから照準へ飛んでいくお札) */
+  #flyingOfuda {
+    position: absolute;
+    left: 50%;
+    bottom: 62px;
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(-50%, 0) rotate(0deg);
+  }
+  #flyingOfuda.show {
+    animation: throwAnim 0.5s cubic-bezier(.25, .65, .3, 1) forwards;
+  }
+  @keyframes throwAnim {
+    0%   { opacity: 1; transform: translate(-50%, 0) scale(1); }
+    70%  { opacity: 1; }
+    100% { opacity: 0; transform: translate(-50%, -58vh) scale(0.55); }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div id="startScreen">
+    <h1>📜 お札スライド</h1>
+    <p>スマホをお札に見立てて、画面の妖を狙い撃つ退治ゲームです。<br>
+       スマホを構えて、画面下のお札を下から上にスライドすると投げます。</p>
+    <button id="startBtn">お札を構える</button>
+    <div id="startError"></div>
+  </div>
+
+  <div id="gameScreen">
+    <div id="topBar">
+      <div><span id="statusDot"></span><span id="statusText">未接続</span></div>
+      <div id="scoreLabel">0点</div>
+      <button id="recenterBtn">照準リセット</button>
+    </div>
+
+    <div id="hint">下から上にスライドしてお札を投げる</div>
+    <div id="debugInfo">β: -- / γ: --</div>
+    <div id="sensorWarning"></div>
+
+    <div id="triggerArea">
+      <div id="slideTrack">
+        <div id="slideHint"><div id="slideArrow">↑</div></div>
+        <div id="ofudaHandle" class="ofuda"></div>
+      </div>
+    </div>
+    <div id="flyingOfuda" class="ofuda"></div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var API_BASE = window.location.origin;
+  var playerId = null;
+  var latestOrientation = { alpha: 0, beta: 0, gamma: 0 };
+  var pendingRecenter = true; // 初回送信時に必ずキャリブレーションさせる
+  var sendTimer = null;
+  var audioCtx = null;
+
+  var startScreen = document.getElementById("startScreen");
+  var gameScreen = document.getElementById("gameScreen");
+  var startBtn = document.getElementById("startBtn");
+  var startError = document.getElementById("startError");
+  var statusDot = document.getElementById("statusDot");
+  var statusText = document.getElementById("statusText");
+  var scoreLabel = document.getElementById("scoreLabel");
+  var recenterBtn = document.getElementById("recenterBtn");
+  var triggerArea = document.getElementById("triggerArea");
+  var slideTrack = document.getElementById("slideTrack");
+  var ofudaHandle = document.getElementById("ofudaHandle");
+  var slideHintEl = document.getElementById("slideHint");
+  var flyingOfudaEl = document.getElementById("flyingOfuda");
+  var debugInfoEl = document.getElementById("debugInfo");
+  var sensorWarningEl = document.getElementById("sensorWarning");
+  var hasReceivedOrientation = false;
+
+  var DRAG_RANGE = 120;     // スライドできる最大距離(px)
+  var DRAG_THRESHOLD = 45;  // これ以上スライドしたら投げる(px)。短くして連投しやすくする
+  var dragging = false;
+  var dragStartY = 0;
+  var dragDistance = 0;
+
+  startBtn.addEventListener("click", onStart);
+  recenterBtn.addEventListener("click", function (e) {
+    e.stopPropagation();
+    pendingRecenter = true;
+  });
+
+  // お札本体だけでなく下部エリア全体をスワイプ開始できるようにして、
+  // 毎回小さいハンドルを狙わなくても連投できるようにする
+  triggerArea.addEventListener("touchstart", onDragStart, { passive: true });
+  triggerArea.addEventListener("mousedown", onDragStart);
+  window.addEventListener("touchmove", onDragMove, { passive: true });
+  window.addEventListener("touchend", onDragEnd);
+  window.addEventListener("mousemove", onDragMove);
+  window.addEventListener("mouseup", onDragEnd);
+
+  function onStart() {
+    startBtn.disabled = true;
+    startError.textContent = "";
+
+    requestOrientationPermission()
+      .then(function (granted) {
+        if (!granted) {
+          startError.textContent = "センサーの許可が得られませんでした。設定を確認してください。";
+          startBtn.disabled = false;
+          return;
+        }
+        return joinServer();
+      })
+      .catch(function (err) {
+        startError.textContent = "接続に失敗しました: " + err;
+        startBtn.disabled = false;
+      });
+  }
+
+  function requestOrientationPermission() {
+    if (typeof DeviceOrientationEvent !== "undefined" &&
+        typeof DeviceOrientationEvent.requestPermission === "function") {
+      // iOS 13+ はユーザー操作の中で明示的な許可が必要
+      return DeviceOrientationEvent.requestPermission().then(function (res) {
+        return res === "granted";
+      });
+    }
+    // Android等、許可不要な環境
+    return Promise.resolve(true);
+  }
+
+  // ngrok無料プランは初回アクセス時に確認ページを挟むため、このヘッダーで
+  // fetch/XHR通信だけは確認ページをスキップして直接APIに届くようにする
+  var NGROK_SKIP_HEADERS = { "ngrok-skip-browser-warning": "true" };
+
+  function joinServer() {
+    return fetch(API_BASE + "/join", { headers: NGROK_SKIP_HEADERS })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        playerId = data.id;
+        enterGame();
+      });
+  }
+
+  function enterGame() {
+    startScreen.style.display = "none";
+    gameScreen.classList.add("active");
+    statusDot.classList.add("connected");
+    statusText.textContent = "接続中";
+
+    window.addEventListener("deviceorientation", onOrientation);
+    sendTimer = setInterval(sendAim, 70);
+
+    unlockAudio();
+
+    // 3秒経ってもセンサーの値が一度も届かない場合は原因の見当をつけて警告表示する
+    setTimeout(function () {
+      if (hasReceivedOrientation) return;
+      var reason = window.isSecureContext
+        ? "ブラウザがセンサーの許可を出していない可能性があります。"
+        : "この接続はhttp（暗号化なし）のため、このブラウザではセンサーがブロックされている可能性があります。";
+      sensorWarningEl.textContent = "⚠ 傾きセンサーが検出できていません。" + reason;
+    }, 3000);
+  }
+
+  function onOrientation(e) {
+    debugInfoEl.textContent = "α: " + fmt(e.alpha) + " β: " + fmt(e.beta) + " / γ: " + fmt(e.gamma) +
+      " (secure=" + window.isSecureContext + ")";
+    if (e.beta === null || e.gamma === null) return;
+    hasReceivedOrientation = true;
+    sensorWarningEl.textContent = "";
+    latestOrientation.alpha = e.alpha || 0;
+    latestOrientation.beta = e.beta;
+    latestOrientation.gamma = e.gamma;
+  }
+
+  function fmt(v) {
+    return (v === null || v === undefined) ? "null" : v.toFixed(1);
+  }
+
+  function sendAim() {
+    if (!playerId) return;
+    var payload = {
+      id: playerId,
+      alpha: latestOrientation.alpha,
+      beta: latestOrientation.beta,
+      gamma: latestOrientation.gamma,
+      recenter: pendingRecenter,
+    };
+    pendingRecenter = false;
+
+    fetch(API_BASE + "/aim", {
+      method: "POST",
+      headers: Object.assign({ "Content-Type": "application/json" }, NGROK_SKIP_HEADERS),
+      body: JSON.stringify(payload),
+    })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (data && typeof data.score === "number") {
+          scoreLabel.textContent = data.score + "点";
+        }
+      })
+      .catch(function () { /* 通信瞬断は無視して次回送信に任せる */ });
+  }
+
+  function clientYOf(e) {
+    if (e.touches && e.touches.length) return e.touches[0].clientY;
+    if (e.changedTouches && e.changedTouches.length) return e.changedTouches[0].clientY;
+    return e.clientY;
+  }
+
+  function onDragStart(e) {
+    if (!playerId) return;
+    dragging = true;
+    dragStartY = clientYOf(e);
+    dragDistance = 0;
+    ofudaHandle.classList.add("dragging");
+  }
+
+  function onDragMove(e) {
+    if (!dragging) return;
+    var delta = dragStartY - clientYOf(e); // 上方向が正
+    dragDistance = Math.max(0, Math.min(DRAG_RANGE, delta));
+    ofudaHandle.style.transform = "translateY(-" + dragDistance + "px)";
+    slideHintEl.style.opacity = String(Math.max(0, 1 - dragDistance / DRAG_RANGE));
+  }
+
+  function onDragEnd() {
+    if (!dragging) return;
+    dragging = false;
+    ofudaHandle.classList.remove("dragging");
+
+    if (dragDistance >= DRAG_THRESHOLD) {
+      onThrow();
+    }
+    resetHandle();
+    dragDistance = 0;
+  }
+
+  function resetHandle() {
+    ofudaHandle.style.transition = "transform 0.1s ease-out";
+    ofudaHandle.style.transform = "translateY(0)";
+    slideHintEl.style.opacity = "1";
+    setTimeout(function () { ofudaHandle.style.transition = ""; }, 110);
+  }
+
+  function onThrow() {
+    if (!playerId) return;
+
+    playThrowEffect();
+    playThrowSound();
+    if (navigator.vibrate) navigator.vibrate(35);
+
+    fetch(API_BASE + "/fire", {
+      method: "POST",
+      headers: Object.assign({ "Content-Type": "application/json" }, NGROK_SKIP_HEADERS),
+      body: JSON.stringify({ id: playerId }),
+    }).catch(function () { /* ignore */ });
+  }
+
+  function playThrowEffect() {
+    flyingOfudaEl.classList.remove("show");
+    // reflowで再トリガー
+    void flyingOfudaEl.offsetWidth;
+    flyingOfudaEl.classList.add("show");
+  }
+
+  function unlockAudio() {
+    try {
+      var AudioCtor = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new AudioCtor();
+    } catch (err) {
+      audioCtx = null;
+    }
+  }
+
+  // 外部音源を使わず、ノイズのバンドパス掃引で「シュッ」という投擲音を合成する（紙のお札らしく軽め）
+  function playThrowSound() {
+    if (!audioCtx) return;
+    if (audioCtx.state === "suspended") audioCtx.resume();
+
+    var duration = 0.22;
+    var bufferSize = Math.floor(audioCtx.sampleRate * duration);
+    var buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    var data = buffer.getChannelData(0);
+    for (var i = 0; i < bufferSize; i++) {
+      data[i] = Math.random() * 2 - 1;
+    }
+
+    var noise = audioCtx.createBufferSource();
+    noise.buffer = buffer;
+
+    var filter = audioCtx.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.Q.setValueAtTime(4, audioCtx.currentTime);
+    filter.frequency.setValueAtTime(1200, audioCtx.currentTime);
+    filter.frequency.linearRampToValueAtTime(3200, audioCtx.currentTime + duration * 0.5);
+    filter.frequency.linearRampToValueAtTime(900, audioCtx.currentTime + duration);
+
+    var gain = audioCtx.createGain();
+    gain.gain.setValueAtTime(0.5, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(audioCtx.destination);
+    noise.start();
+    noise.stop(audioCtx.currentTime + duration);
+  }
+})();
+</script>
+</body>
+</html>

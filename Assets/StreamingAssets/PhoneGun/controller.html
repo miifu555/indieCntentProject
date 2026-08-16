@@ -87,6 +87,63 @@
     display: block;
   }
 
+  /* ---------- ハイスコア名前入力画面 ---------- */
+  #nameEntryScreen {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    padding: 24px;
+    text-align: center;
+    background: radial-gradient(circle at 50% 30%, #2b2410 0%, #05060a 70%);
+  }
+  #nameEntryScreen.active {
+    display: flex;
+  }
+  #nameEntryScreen h1 {
+    font-size: 24px;
+    margin: 0;
+    letter-spacing: 2px;
+    color: #ffd76b;
+  }
+  #nameEntryScreen p {
+    font-size: 14px;
+    color: #9aa4b2;
+    margin: 0;
+  }
+  #nameInput {
+    width: 220px;
+    padding: 14px;
+    font-size: 42px;
+    font-weight: bold;
+    letter-spacing: 18px;
+    text-align: center;
+    text-transform: uppercase;
+    border-radius: 12px;
+    border: none;
+    outline: none;
+    background: #1a1f2b;
+    color: #fff;
+  }
+  #nameSubmitBtn {
+    margin-top: 4px;
+    padding: 16px 44px;
+    font-size: 16px;
+    font-weight: bold;
+    border: none;
+    border-radius: 999px;
+    background: linear-gradient(180deg, #ffd76b, #d69b1f);
+    color: #241a00;
+    letter-spacing: 4px;
+  }
+  #nameSubmitBtn:active {
+    transform: scale(0.97);
+  }
+
   #topBar {
     position: absolute;
     top: 0; left: 0; right: 0;
@@ -275,6 +332,13 @@
     <div id="flyingShuriken" class="shuriken"></div>
   </div>
 
+  <div id="nameEntryScreen">
+    <h1>🏆 ハイスコア！</h1>
+    <p>名前を3文字で入力してください</p>
+    <input id="nameInput" maxlength="3" autocapitalize="characters" autocomplete="off" inputmode="text" />
+    <button id="nameSubmitBtn">けってい</button>
+  </div>
+
 </div>
 
 <script>
@@ -304,6 +368,14 @@
   var debugInfoEl = document.getElementById("debugInfo");
   var sensorWarningEl = document.getElementById("sensorWarning");
   var hasReceivedOrientation = false;
+
+  var nameEntryScreen = document.getElementById("nameEntryScreen");
+  var nameInput = document.getElementById("nameInput");
+  var nameSubmitBtn = document.getElementById("nameSubmitBtn");
+  var nameEntryShown = false;
+  var nameSubmitting = false;
+
+  nameSubmitBtn.addEventListener("click", submitName);
 
   var DRAG_RANGE = 120;     // スライドできる最大距離(px)
   var DRAG_THRESHOLD = 45;  // これ以上スライドしたら投げる(px)。短くして連投しやすくする
@@ -427,8 +499,42 @@
         if (data && typeof data.score === "number") {
           scoreLabel.textContent = data.score + "点";
         }
+        if (data && data.nameEntry) {
+          showNameEntry();
+        } else if (nameEntryShown && !nameSubmitting) {
+          hideNameEntry();
+        }
       })
       .catch(function () { /* 通信瞬断は無視して次回送信に任せる */ });
+  }
+
+  function showNameEntry() {
+    if (nameEntryShown) return;
+    nameEntryShown = true;
+    nameSubmitting = false;
+    nameInput.value = "";
+    nameEntryScreen.classList.add("active");
+    if (navigator.vibrate) navigator.vibrate([40, 60, 40]);
+  }
+
+  function hideNameEntry() {
+    nameEntryShown = false;
+    nameEntryScreen.classList.remove("active");
+  }
+
+  function submitName() {
+    if (!playerId || nameSubmitting) return;
+    var name = (nameInput.value || "").toUpperCase().replace(/[^A-Z]/g, "").slice(0, 3);
+    if (name.length === 0) return;
+
+    nameSubmitting = true;
+    fetch(API_BASE + "/name", {
+      method: "POST",
+      headers: Object.assign({ "Content-Type": "application/json" }, NGROK_SKIP_HEADERS),
+      body: JSON.stringify({ id: playerId, name: name }),
+    })
+      .then(function () { hideNameEntry(); })
+      .catch(function () { hideNameEntry(); });
   }
 
   function clientYOf(e) {

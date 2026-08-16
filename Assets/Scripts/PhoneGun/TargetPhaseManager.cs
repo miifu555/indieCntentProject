@@ -25,6 +25,9 @@ public class TargetPhaseManager : MonoBehaviour
 
     public int CurrentPhaseIndex { get; private set; } = -1;
 
+    // 最後のフェーズが終わった時に呼ばれる（結果発表などに使う）
+    public event System.Action onAllPhasesComplete;
+
     private Coroutine phaseCoroutine;
 
     void Start()
@@ -96,9 +99,22 @@ public class TargetPhaseManager : MonoBehaviour
         int nextIndex = CurrentPhaseIndex + 1;
         if (nextIndex >= phases.Count)
         {
+            onAllPhasesComplete?.Invoke();
             if (!loop) return;
             nextIndex = 0;
         }
         StartPhase(nextIndex);
+    }
+
+    // 結果発表の後、次の回のためにフェーズ進行を初期状態へ戻す
+    public void ResetForNextRound()
+    {
+        if (phaseCoroutine != null)
+        {
+            StopCoroutine(phaseCoroutine);
+            phaseCoroutine = null;
+        }
+        HideAllPhases();
+        CurrentPhaseIndex = -1;
     }
 }

@@ -51,6 +51,12 @@ public class PhoneGunManager : MonoBehaviour
     [Tooltip("発砲エフェクトが元の大きさに戻るまでの秒数")]
     public float fireFlashDuration = 0.15f;
 
+    [Header("プレイヤー管理")]
+    [Tooltip("スマホから傾き送信(/aim)が届かなくなってから、この秒数で自動的に退出させる")]
+    public float playerInactivityTimeout = 60f;
+    [Tooltip("非アクティブなプレイヤーが居ないか、何秒おきにチェックするか")]
+    public float inactivityCheckInterval = 5f;
+
     private class PlayerRig
     {
         public string id;
@@ -70,6 +76,7 @@ public class PhoneGunManager : MonoBehaviour
     private readonly Dictionary<string, PlayerRig> rigs = new Dictionary<string, PlayerRig>();
     private readonly List<string> playerOrder = new List<string>();
     private string lastQrUrl = "";
+    private float inactivityCheckTimer;
 
     void Start()
     {
@@ -98,7 +105,35 @@ public class PhoneGunManager : MonoBehaviour
             HandleFire(fireId);
         }
 
+        inactivityCheckTimer += Time.deltaTime;
+        if (inactivityCheckTimer >= inactivityCheckInterval)
+        {
+            inactivityCheckTimer = 0f;
+            RemoveInactivePlayers();
+        }
+
         UpdateScoreboard();
+    }
+
+    // スマホから傾き送信が一定時間ないプレイヤー（アプリを閉じた・接続が切れた等）を退出させる
+    void RemoveInactivePlayers()
+    {
+        var inactiveIds = server.GetInactivePlayerIds(playerInactivityTimeout);
+        foreach (var id in inactiveIds)
+        {
+            RemovePlayer(id);
+        }
+    }
+
+    void RemovePlayer(string id)
+    {
+        if (rigs.TryGetValue(id, out var rig))
+        {
+            if (rig.reticle != null) Destroy(rig.reticle.gameObject);
+            rigs.Remove(id);
+        }
+        playerOrder.Remove(id);
+        server.RemovePlayer(id);
     }
 
     void UpdateConnectionInfo()
@@ -242,6 +277,13 @@ public class PhoneGunManager : MonoBehaviour
                 {
                     server.AddScore(id, gained);
                 }
+                return;
+            }
+
+            var gate = hit.collider.GetComponentInParent<StartGate>();
+            if (gate != null)
+            {
+                gate.Hit(hit.point);
             }
         });
     }
@@ -272,6 +314,64 @@ public class PhoneGunManager : MonoBehaviour
         rig.flashCoroutine = null;
     }
 
+    // その回のトップスコアのプレイヤーを取得する（ハイスコア名前入力の対象決定用）
+    public bool GetTopPlayer(out string id, out int playerNumber, out int score)
+    {
+        id = null;
+        playerNumber = 0;
+        score = int.MinValue;
+
+        string bestId = null;
+        int bestScore = int.MinValue;
+        foreach (var pid in playerOrder)
+        {
+            if (server.TryGetPlayer(pid, out var info) && info.score > bestScore)
+            {
+                bestScore = info.score;
+                bestId = pid;
+            }
+        }
+
+        if (bestId == null) return false;
+
+        id = bestId;
+        playerNumber = rigs[bestId].playerNumber;
+        score = bestScore;
+        return true;
+    }
+
+    // 結果発表画面用に、スコア降順のランキング（表示名・スコア）を組み立てる
+    public List<(string label, int score)> GetRankingEntries()
+    {
+        var raw = new List<(int playerNumber, int score)>();
+        foreach (var id in playerOrder)
+        {
+            if (server.TryGetPlayer(id, out var info))
+            {
+                raw.Add((rigs[id].playerNumber, info.score));
+            }
+        }
+        raw.Sort((a, b) => b.score.CompareTo(a.score));
+
+        var entries = new List<(string label, int score)>();
+        foreach (var r in raw) entries.Add(("P" + r.playerNumber, r.score));
+        return entries;
+    }
+
+    // 結果発表画面用に、スコア降順のランキングテキストを組み立てる（1〜3位は色付き）
+    public string BuildRankingText()
+    {
+        var entries = GetRankingEntries();
+        if (entries.Count == 0) return "参加者がいませんでした";
+
+        var sb = new StringBuilder();
+        for (int i = 0; i < entries.Count; i++)
+        {
+            sb.AppendLine(RankingColor.FormatLine(i + 1, entries[i].label, entries[i].score));
+        }
+        return sb.ToString();
+    }
+
     void UpdateScoreboard()
     {
         if (scoreboardText == null) return;
@@ -281,7 +381,8 @@ public class PhoneGunManager : MonoBehaviour
         {
             if (server.TryGetPlayer(id, out var info))
             {
-                sb.AppendLine($"P{rigs[id].playerNumber}: {info.score}点");
+                // レティクルと同じ色（info.colorHex）でプレイヤーごとに色分けする
+                sb.AppendLine($"<color={info.colorHex}>P{rigs[id].playerNumber}: {info.score}点</color>");
             }
         }
         scoreboardText.text = sb.ToString();

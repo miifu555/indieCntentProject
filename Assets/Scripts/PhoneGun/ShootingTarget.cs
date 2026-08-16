@@ -24,8 +24,16 @@ public class ShootingTarget : MonoBehaviour
 
     void Awake()
     {
-        col = GetComponent<Collider>();
-        renderers = GetComponentsInChildren<Renderer>();
+        EnsureInitialized();
+    }
+
+    // Awakeは非アクティブなGameObjectでは呼ばれないため、フェーズ開始時に
+    // SetActive(true)した直後にHit()/ResetTarget()が呼ばれるとcol/renderersが
+    // 未初期化のままになることがある。呼ばれるたびに保証する。
+    void EnsureInitialized()
+    {
+        if (col == null) col = GetComponent<Collider>();
+        if (renderers == null) renderers = GetComponentsInChildren<Renderer>();
     }
 
     // 命中時にPhoneGunManagerから呼ばれる。獲得スコアを返す（既に倒れている場合は0）
@@ -33,10 +41,12 @@ public class ShootingTarget : MonoBehaviour
     {
         if (isDown) return 0;
         isDown = true;
+        EnsureInitialized();
 
         if (hitEffectPrefab != null)
         {
-            Instantiate(hitEffectPrefab, hitPoint, Quaternion.identity);
+            GameObject effect = Instantiate(hitEffectPrefab, hitPoint, Quaternion.identity);
+            Destroy(effect, 1f); // 消し忘れて溜まり続けると重くなるため1秒で自動破棄
         }
         if (hitSound != null)
         {
@@ -74,12 +84,16 @@ public class ShootingTarget : MonoBehaviour
     {
         StopAllCoroutines();
         isDown = false;
+        EnsureInitialized();
         SetVisible(true);
     }
 
     void SetVisible(bool visible)
     {
         if (col != null) col.enabled = visible;
-        foreach (var r in renderers) r.enabled = visible;
+        if (renderers != null)
+        {
+            foreach (var r in renderers) r.enabled = visible;
+        }
     }
 }
