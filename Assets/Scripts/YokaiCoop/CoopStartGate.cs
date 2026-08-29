@@ -10,6 +10,14 @@ public class CoopStartGate : MonoBehaviour
     [Tooltip("命中してからゲーム開始演出が始まるまでの間")]
     public float breakDelay = 0.5f;
     public CoopGameFlowController flowController;
+    [Tooltip("封印を破壊した時に命中位置へ出すエフェクト（任意）")]
+    public GameObject breakEffectPrefab;
+    [Tooltip("封印を破壊した時に鳴らす効果音（任意）")]
+    public AudioClip breakSound;
+    [Range(0f, 1f)]
+    public float breakVolume = 1f;
+    [Tooltip("破壊音を鳴らすBGMマネージャー（同じ場所から2D再生する）")]
+    public CoopBgmManager bgmManager;
 
     private ShootingTarget shootingTarget;
     private Collider col;
@@ -23,6 +31,7 @@ public class CoopStartGate : MonoBehaviour
         // 壊れたらResetGate()を呼ぶまで自動では戻らないようにする
         shootingTarget.scoreValue = 0;
         shootingTarget.respawns = false;
+        shootingTarget.hitEffectPrefab = breakEffectPrefab;
     }
 
     void Update()
@@ -31,6 +40,7 @@ public class CoopStartGate : MonoBehaviour
         if (col != null && !col.enabled)
         {
             broken = true;
+            if (bgmManager != null) bgmManager.PlaySfx(breakSound, breakVolume);
             if (flowController != null)
             {
                 Invoke(nameof(StartGame), breakDelay);

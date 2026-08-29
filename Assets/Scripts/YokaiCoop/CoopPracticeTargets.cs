@@ -16,8 +16,18 @@ public class CoopPracticeTargets : MonoBehaviour
     public int count = 3;
     [Tooltip("命中してから再出現するまでの秒数")]
     public float respawnDelay = 1.2f;
+    [Tooltip("命中した時に命中位置へ出すエフェクト（任意）")]
+    public GameObject hitEffectPrefab;
+    [Tooltip("命中した時に鳴らす効果音（任意）")]
+    public AudioClip hitSound;
+    [Range(0f, 1f)]
+    public float hitVolume = 1f;
+    [Tooltip("命中音を鳴らすBGMマネージャー（同じ場所から2D再生する）")]
+    public CoopBgmManager bgmManager;
 
     private readonly List<GameObject> spawned = new List<GameObject>();
+    private readonly Dictionary<GameObject, Collider> spawnedColliders = new Dictionary<GameObject, Collider>();
+    private readonly Dictionary<GameObject, bool> lastColliderEnabled = new Dictionary<GameObject, bool>();
 
     public void ShowPracticeTargets()
     {
@@ -56,13 +66,35 @@ public class CoopPracticeTargets : MonoBehaviour
             shootingTarget.scoreValue = 0;
             shootingTarget.respawns = true;
             shootingTarget.respawnDelay = respawnDelay;
+            shootingTarget.hitEffectPrefab = hitEffectPrefab;
 
             if (instance.GetComponent<Collider>() == null)
             {
                 instance.AddComponent<BoxCollider>();
             }
 
+            var col = instance.GetComponent<Collider>();
             spawned.Add(instance);
+            spawnedColliders[instance] = col;
+            lastColliderEnabled[instance] = col != null && col.enabled;
+        }
+    }
+
+    void Update()
+    {
+        if (bgmManager == null || spawned.Count == 0) return;
+
+        foreach (var go in spawned)
+        {
+            if (go == null || !spawnedColliders.TryGetValue(go, out var col) || col == null) continue;
+
+            bool wasEnabled = lastColliderEnabled.TryGetValue(go, out var v) && v;
+            bool isEnabled = col.enabled;
+            if (wasEnabled && !isEnabled)
+            {
+                bgmManager.PlaySfx(hitSound, hitVolume);
+            }
+            lastColliderEnabled[go] = isEnabled;
         }
     }
 
@@ -73,5 +105,7 @@ public class CoopPracticeTargets : MonoBehaviour
             if (go != null) Destroy(go);
         }
         spawned.Clear();
+        spawnedColliders.Clear();
+        lastColliderEnabled.Clear();
     }
 }

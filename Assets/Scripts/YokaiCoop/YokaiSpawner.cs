@@ -35,6 +35,16 @@ public class YokaiSpawner : MonoBehaviour
     public float maxLifetime = 25f;
     [Tooltip("命中時に加算されるダメージ（スコア）")]
     public int scoreValuePerHit = 20;
+    [Tooltip("命中した時に命中位置へ出すエフェクト（任意）")]
+    public GameObject hitEffectPrefab;
+    [Tooltip("命中した時に鳴らす効果音（任意）")]
+    public AudioClip hitSound;
+    [Range(0f, 1f)]
+    public float hitVolume = 1f;
+    [Tooltip("撃破された瞬間に出すエフェクト（任意）")]
+    public GameObject defeatEffectPrefab;
+    [Tooltip("命中音を鳴らすBGMマネージャー（同じ場所から2D再生する）")]
+    public CoopBgmManager bgmManager;
 
     [Tooltip("妖がプレイヤーへ到達（攻撃）した時に呼ばれる")]
     public System.Action onYokaiReachedTarget;
@@ -106,6 +116,7 @@ public class YokaiSpawner : MonoBehaviour
         if (shootingTarget == null) shootingTarget = instance.AddComponent<ShootingTarget>();
         shootingTarget.scoreValue = scoreValuePerHit;
         shootingTarget.respawns = false;
+        shootingTarget.hitEffectPrefab = hitEffectPrefab;
 
         if (instance.GetComponent<Collider>() == null)
         {
@@ -118,6 +129,10 @@ public class YokaiSpawner : MonoBehaviour
         mover.moveSpeed = moveSpeed;
         mover.attackDistance = attackDistance;
         mover.pitchOffsetDegrees = yokaiPitchOffset;
+        mover.defeatEffectPrefab = defeatEffectPrefab;
+        mover.bgmManager = bgmManager;
+        mover.hitSound = hitSound;
+        mover.hitVolume = hitVolume;
         mover.onReachedTarget = () => onYokaiReachedTarget?.Invoke();
 
         spawned.Add(instance);

@@ -33,6 +33,9 @@ public class CoopGameFlowController : MonoBehaviour
     [Tooltip("ロビー中に遊べる射撃練習用のお化け。ラウンド開始で片付き、ロビーに戻ると再度出現する")]
     public CoopPracticeTargets practiceTargets;
 
+    [Tooltip("BGMの再生を担当する専用マネージャー")]
+    public CoopBgmManager bgmManager;
+
     [Header("ゲーム進行")]
     public YokaiSpawner spawner;
     public CoopStartGate startGate;
@@ -68,6 +71,14 @@ public class CoopGameFlowController : MonoBehaviour
     public int bossAttackDamage = 2;
     [Tooltip("倒した時に加算されるスコア")]
     public int bossScoreValue = 100;
+    [Tooltip("命中した時に命中位置へ出すエフェクト（任意）")]
+    public GameObject bossHitEffectPrefab;
+    [Tooltip("命中した時に鳴らす効果音（任意）")]
+    public AudioClip bossHitSound;
+    [Range(0f, 1f)]
+    public float bossHitVolume = 1f;
+    [Tooltip("完全に撃破された瞬間に出すエフェクト（任意）")]
+    public GameObject bossDefeatEffectPrefab;
 
     private bool running;
     private bool gameActive;
@@ -84,6 +95,7 @@ public class CoopGameFlowController : MonoBehaviour
     void Start()
     {
         if (practiceTargets != null) practiceTargets.ShowPracticeTargets();
+        if (bgmManager != null) bgmManager.PlayLobbyBgm();
     }
 
     void Update()
@@ -147,6 +159,7 @@ public class CoopGameFlowController : MonoBehaviour
 
         var shootingTarget = instance.GetComponent<ShootingTarget>();
         if (shootingTarget == null) shootingTarget = instance.AddComponent<ShootingTarget>();
+        shootingTarget.hitEffectPrefab = bossHitEffectPrefab;
 
         if (instance.GetComponent<Collider>() == null)
         {
@@ -155,6 +168,10 @@ public class CoopGameFlowController : MonoBehaviour
 
         var boss = instance.AddComponent<YokaiBoss>();
         boss.maxHP = bossMaxHP;
+        boss.defeatEffectPrefab = bossDefeatEffectPrefab;
+        boss.bgmManager = bgmManager;
+        boss.hitSound = bossHitSound;
+        boss.hitVolume = bossHitVolume;
         boss.onDefeated = () => OnBossDefeated(boss, instance);
         activeBosses.Add(boss);
 
@@ -234,6 +251,8 @@ public class CoopGameFlowController : MonoBehaviour
     {
         yield return Fade(1f, fadeOutDuration);
 
+        if (bgmManager != null) bgmManager.PlayGameplayBgm();
+
         if (lobbyUI != null) lobbyUI.SetActive(false);
         if (scoreboardUI != null) scoreboardUI.SetActive(true);
         if (practiceTargets != null) practiceTargets.ClearPracticeTargets();
@@ -265,6 +284,8 @@ public class CoopGameFlowController : MonoBehaviour
 
         yield return Fade(1f, fadeOutDuration);
 
+        if (bgmManager != null) bgmManager.PlayResultBgm(cleared);
+
         int finalScore = GetPlayerScore();
 
         if (resultTitleText != null)
@@ -287,6 +308,8 @@ public class CoopGameFlowController : MonoBehaviour
         if (resultUI != null) resultUI.SetActive(false);
 
         ResetForNextRound();
+
+        if (bgmManager != null) bgmManager.PlayLobbyBgm();
 
         if (lobbyUI != null) lobbyUI.SetActive(true);
         if (scoreboardUI != null) scoreboardUI.SetActive(false);

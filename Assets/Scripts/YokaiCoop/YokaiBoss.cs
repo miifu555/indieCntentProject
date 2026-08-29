@@ -12,6 +12,16 @@ public class YokaiBoss : MonoBehaviour
     public float hitFlickerDelay = 0.35f;
     [Tooltip("完全に倒された後、演出のために消えるまでの秒数")]
     public float defeatDestroyDelay = 0.8f;
+    [Tooltip("完全に撃破された瞬間に出すエフェクト（任意）")]
+    public GameObject defeatEffectPrefab;
+    [Tooltip("撃破エフェクトを消すまでの秒数")]
+    public float defeatEffectLifetime = 1.5f;
+    [Tooltip("命中音・撃破音を鳴らすBGMマネージャー（同じ場所から2D再生する）")]
+    public CoopBgmManager bgmManager;
+    [Tooltip("被弾するたびに鳴らす効果音（任意）")]
+    public AudioClip hitSound;
+    [Range(0f, 1f)]
+    public float hitVolume = 1f;
 
     public System.Action onDefeated;
 
@@ -41,11 +51,17 @@ public class YokaiBoss : MonoBehaviour
         if (wasEnabled && !isEnabled)
         {
             currentHP--;
+            if (bgmManager != null) bgmManager.PlaySfx(hitSound, hitVolume);
             if (currentHP <= 0)
             {
                 defeated = true;
                 // 保留中の自動再出現(RespawnRoutine)を止め、消えたままにする
                 shootingTarget.StopAllCoroutines();
+                if (defeatEffectPrefab != null)
+                {
+                    GameObject effect = Instantiate(defeatEffectPrefab, transform.position, Quaternion.identity);
+                    Destroy(effect, defeatEffectLifetime);
+                }
                 onDefeated?.Invoke();
                 Destroy(gameObject, defeatDestroyDelay);
             }

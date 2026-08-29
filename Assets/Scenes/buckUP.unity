@@ -599,6 +599,7 @@ MonoBehaviour:
   port: 8787
   controllerHtmlRelativePath: PhoneGun/controller.html
   certificateRelativePath: PhoneGun/server.pfx
+  displayHtmlRelativePath: PhoneGun/display.html
   enableNgrok: 1
   ngrokPath: ngrok
   ngrokLocalPort: 8788
@@ -3118,6 +3119,8 @@ MonoBehaviour:
   throwOriginCameraDownOffset: 1.5
   fireFlashScale: 2.6
   fireFlashDuration: 0.15
+  playerInactivityTimeout: 60
+  inactivityCheckInterval: 5
 --- !u!4 &877862190
 Transform:
   m_ObjectHideFlags: 0
