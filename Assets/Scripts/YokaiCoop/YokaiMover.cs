@@ -15,6 +15,8 @@ public class YokaiMover : MonoBehaviour
     public float pitchOffsetDegrees = 0f;
     [Tooltip("被弾したら消滅させるか。多段HPのボスなど、被弾しても消えてほしくない場合はfalseにする")]
     public bool destroyOnHit = true;
+    [Tooltip("倒すのに必要な被弾回数。2以上にする場合、呼び出し元でShootingTarget.respawnsをtrueにしておく必要がある")]
+    public int maxHP = 1;
     [Tooltip("到達（攻撃）したら消滅させるか。falseの場合はその場に留まり続ける（ボス向け）")]
     public bool destroyOnReachTarget = true;
     [Tooltip("撃破された瞬間（destroyOnHitでの消滅時）に出すエフェクト（任意）")]
@@ -29,31 +31,55 @@ public class YokaiMover : MonoBehaviour
     public float hitVolume = 1f;
 
     public System.Action onReachedTarget;
+    [Tooltip("被弾により撃破された瞬間に呼ばれる（全員スコア加算などに使う）")]
+    public System.Action onDefeated;
 
     private Collider col;
     private bool finished;
     private bool reachedTarget;
+    private int currentHP;
+    private bool wasColliderEnabled = true;
 
     void Awake()
     {
         col = GetComponent<Collider>();
     }
 
+    void Start()
+    {
+        // YokaiSpawnerはInstantiate直後(Awakeが即座に走った後)にmaxHPを設定するため、
+        // Awakeで初期化すると常にデフォルト値(1)のまま固定されてしまう。Startまで遅らせる
+        currentHP = Mathf.Max(1, maxHP);
+    }
+
     void Update()
     {
         if (finished) return;
 
-        if (destroyOnHit && col != null && !col.enabled)
+        if (destroyOnHit && col != null)
         {
-            finished = true;
-            if (bgmManager != null) bgmManager.PlaySfx(hitSound, hitVolume);
-            if (defeatEffectPrefab != null)
+            bool isColliderEnabled = col.enabled;
+            if (wasColliderEnabled && !isColliderEnabled)
             {
-                GameObject effect = Instantiate(defeatEffectPrefab, transform.position, Quaternion.identity);
-                Destroy(effect, defeatEffectLifetime);
+                currentHP--;
+                if (currentHP <= 0)
+                {
+                    finished = true;
+                    if (bgmManager != null) bgmManager.PlaySfx(hitSound, hitVolume);
+                    if (defeatEffectPrefab != null)
+                    {
+                        GameObject effect = Instantiate(defeatEffectPrefab, transform.position, Quaternion.identity);
+                        Destroy(effect, defeatEffectLifetime);
+                    }
+                    onDefeated?.Invoke();
+                    Destroy(gameObject, destroyDelayAfterHit);
+                    wasColliderEnabled = isColliderEnabled;
+                    return;
+                }
+                // まだ倒れていない。ShootingTarget側の自動再出現(respawns=true)で
+                // 少し後にColliderが戻るので、そのまま移動・攻撃判定を継続する
             }
-            Destroy(gameObject, destroyDelayAfterHit);
-            return;
+            wasColliderEnabled = isColliderEnabled;
         }
 
         if (target == null || reachedTarget) return;

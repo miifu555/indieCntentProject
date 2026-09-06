@@ -10,7 +10,7 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: -8679921383154817045, guid: a7941cfe99972314686817513caf80ec, type: 3}
       propertyPath: m_LocalPosition.x
-      value: 0.000015258789
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: a7941cfe99972314686817513caf80ec, type: 3}
       propertyPath: m_LocalPosition.y
@@ -18,7 +18,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: a7941cfe99972314686817513caf80ec, type: 3}
       propertyPath: m_LocalPosition.z
-      value: 0.000030517578
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: a7941cfe99972314686817513caf80ec, type: 3}
       propertyPath: m_LocalRotation.w
@@ -63,6 +63,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: a7941cfe99972314686817513caf80ec, type: 3}
       insertIndex: -1
       addedObject: {fileID: 5790925586256846567}
+    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: a7941cfe99972314686817513caf80ec, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1485036710646337239}
   m_SourcePrefab: {fileID: 100100000, guid: a7941cfe99972314686817513caf80ec, type: 3}
 --- !u!1 &7473220737649711321 stripped
 GameObject:
@@ -90,3 +93,22 @@ BoxCollider:
   serializedVersion: 3
   m_Size: {x: 0.97714245, y: 0.9796447, z: 0.7039185}
   m_Center: {x: 0, y: 0, z: 0.4898225}
+--- !u!114 &1485036710646337239
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7473220737649711321}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 680ff40008913ff49a0e4b364f645a6b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::YokaiStats
+  moveSpeed: 4
+  maxHP: 1
+  hitFlickerDelay: 0.25
+  scale: 1
+  fadeInDuration: 0.2
+  scoreValue: 20
+  shareScoreWithAll: 0

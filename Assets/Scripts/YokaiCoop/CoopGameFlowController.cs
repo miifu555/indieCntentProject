@@ -1,15 +1,12 @@
 using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 
-// 妖退治（1人プレイ）ゲームの進行管理。
+// 妖退治（協力プレイ）ゲームの進行管理。
 // ロビー → 封印(CoopStartGate)破壊で開始 → 町の中に妖が徐々に短い間隔で出現し、
 // プレイヤー(カメラ)に接近してくる → 妖に近づかれるたびHPが減り、0になると全滅（失敗）。
-// それとは別に、体力の多いボスが4〜6秒おきにランダムな間隔で出現し続ける（倒しても
-// ラウンドは終了しない、あくまで難易度要素）。制限時間まで生き延びれば生存成功。
-// スコアは常時表示するが、勝敗の判定には使わない。
+// YokaiSpawnerの全フェーズを出し切ればクリア。スコアは常時表示するが、勝敗の判定には使わない。
 // 既存のランキングゲーム側（GameFlowController等）には一切手を加えず、
 // PhoneGunServer・PhoneGunManager・ShootingTargetは無改造のまま利用する。
 public class CoopGameFlowController : MonoBehaviour
@@ -32,6 +29,10 @@ public class CoopGameFlowController : MonoBehaviour
     public float resultDisplayDuration = 6f;
     [Tooltip("ロビー中に遊べる射撃練習用のお化け。ラウンド開始で片付き、ロビーに戻ると再度出現する")]
     public CoopPracticeTargets practiceTargets;
+    [Tooltip("ロビー中だけ表示し、ラウンド開始で非表示にする3Dオブジェクト（的の模型など。UIではなくシーン上のオブジェクトを指定する）")]
+    public GameObject[] lobbyOnlyObjects;
+    [Tooltip("最後のフェーズが始まっている間だけ表示する煽り文字（「連打！！！」等）")]
+    public TMP_Text rapidFireText;
 
     [Tooltip("BGMの再生を担当する専用マネージャー")]
     public CoopBgmManager bgmManager;
@@ -40,171 +41,57 @@ public class CoopGameFlowController : MonoBehaviour
     public YokaiSpawner spawner;
     public CoopStartGate startGate;
     public PhoneGunServer server;
+    [Tooltip("結果画面で1人ずつのスコアを色名付きで表示するために使う（未設定なら色名無しで1人ずつ表示する）")]
+    public CoopPlayerSlotManager slotManager;
     [Tooltip("プレイヤーのHP。妖に近づかれるたび1減る")]
     public int maxHP = 5;
-    [Tooltip("生き延びる必要がある制限時間（秒）。0以下にすると無制限（HPが0になるまで終わらない）")]
-    public float timeLimit = 30f;
 
     [Header("HP UI")]
     public Slider gaugeSlider;
     public TMP_Text gaugeText;
-    public TMP_Text timerText;
-
-    [Header("ボス（体力の多い妖）")]
-    [Tooltip("出現させるボスのプレファブ（複数指定するとランダムに選ばれる。GitHub等から取り込んだGLBモデルのプレファブをここに設定する）")]
-    public GameObject[] bossPrefabs;
-    [Tooltip("設定すると出現したボスの見た目にこのマテリアルを強制適用する（未設定ならプレファブ本来のマテリアルを使う）")]
-    public Material bossOverrideMaterial;
-    [Tooltip("ボスの出現位置。未設定ならspawnerの出現地点の中からランダムに選ぶ")]
-    public Transform bossSpawnPoint;
-    [Tooltip("ボスが出現する間隔（秒）の最小値")]
-    public float bossSpawnIntervalMin = 4f;
-    [Tooltip("ボスが出現する間隔（秒）の最大値")]
-    public float bossSpawnIntervalMax = 6f;
-    [Tooltip("倒すのに必要な被弾回数")]
-    public int bossMaxHP = 8;
-    [Tooltip("ボスがプレイヤーへ近づく速さ")]
-    public float bossMoveSpeed = 0.6f;
-    [Tooltip("この距離まで近づくと攻撃してくる")]
-    public float bossAttackDistance = 5f;
-    [Tooltip("ボスの攻撃が命中した時に減るHP")]
-    public int bossAttackDamage = 2;
-    [Tooltip("倒した時に加算されるスコア")]
-    public int bossScoreValue = 100;
-    [Tooltip("命中した時に命中位置へ出すエフェクト（任意）")]
-    public GameObject bossHitEffectPrefab;
-    [Tooltip("命中した時に鳴らす効果音（任意）")]
-    public AudioClip bossHitSound;
-    [Range(0f, 1f)]
-    public float bossHitVolume = 1f;
-    [Tooltip("完全に撃破された瞬間に出すエフェクト（任意）")]
-    public GameObject bossDefeatEffectPrefab;
 
     private bool running;
     private bool gameActive;
-    private float remainingTime;
     private int currentHP;
-    private readonly List<YokaiBoss> activeBosses = new List<YokaiBoss>();
-    private Coroutine bossSpawnCoroutine;
 
     void Awake()
     {
-        if (spawner != null) spawner.onYokaiReachedTarget = OnYokaiReachedPlayer;
+        if (spawner != null)
+        {
+            spawner.onYokaiReachedTarget = OnYokaiReachedPlayer;
+            spawner.onLastPhaseActiveChanged = OnLastPhaseActiveChanged;
+            spawner.onAllWavesCleared = OnAllWavesCleared;
+        }
+        if (rapidFireText != null) rapidFireText.gameObject.SetActive(false);
+    }
+
+    void OnLastPhaseActiveChanged(bool active)
+    {
+        if (rapidFireText != null) rapidFireText.gameObject.SetActive(active);
+    }
+
+    // YokaiSpawnerが全フェーズの敵を出し切ったら呼ばれる。クリア扱いにする
+    void OnAllWavesCleared()
+    {
+        if (!gameActive) return;
+        gameActive = false;
+        StartCoroutine(EndSequence(true));
     }
 
     void Start()
     {
+        SetLobbyOnlyObjectsActive(true);
         if (practiceTargets != null) practiceTargets.ShowPracticeTargets();
         if (bgmManager != null) bgmManager.PlayLobbyBgm();
     }
 
-    void Update()
+    void SetLobbyOnlyObjectsActive(bool active)
     {
-        if (!gameActive) return;
-
-        if (timeLimit > 0f)
+        if (lobbyOnlyObjects == null) return;
+        foreach (var go in lobbyOnlyObjects)
         {
-            remainingTime -= Time.deltaTime;
-            if (timerText != null)
-            {
-                timerText.text = Mathf.Max(0, Mathf.CeilToInt(remainingTime)) + "秒";
-            }
-            if (remainingTime <= 0f)
-            {
-                gameActive = false;
-                StartCoroutine(EndSequence(true));
-                return;
-            }
+            if (go != null) go.SetActive(active);
         }
-    }
-
-    IEnumerator BossSpawnLoop()
-    {
-        while (true)
-        {
-            float wait = Random.Range(bossSpawnIntervalMin, bossSpawnIntervalMax);
-            yield return new WaitForSeconds(wait);
-            SpawnBoss();
-        }
-    }
-
-    void SpawnBoss()
-    {
-        activeBosses.RemoveAll(b => b == null);
-
-        if (bossPrefabs == null || bossPrefabs.Length == 0) return;
-        GameObject prefab = bossPrefabs[Random.Range(0, bossPrefabs.Length)];
-        if (prefab == null) return;
-
-        Transform point = bossSpawnPoint;
-        if (point == null && spawner != null && spawner.spawnPoints != null && spawner.spawnPoints.Length > 0)
-        {
-            point = spawner.spawnPoints[Random.Range(0, spawner.spawnPoints.Length)];
-        }
-        Vector3 spawnPos = point != null ? point.position : transform.position;
-        Quaternion spawnRot = point != null ? point.rotation : Quaternion.identity;
-
-        GameObject instance = Instantiate(prefab, spawnPos, spawnRot);
-
-        if (bossOverrideMaterial != null)
-        {
-            var renderers = instance.GetComponentsInChildren<Renderer>();
-            foreach (var r in renderers)
-            {
-                var mats = new Material[r.sharedMaterials.Length];
-                for (int i = 0; i < mats.Length; i++) mats[i] = bossOverrideMaterial;
-                r.sharedMaterials = mats;
-            }
-        }
-
-        var shootingTarget = instance.GetComponent<ShootingTarget>();
-        if (shootingTarget == null) shootingTarget = instance.AddComponent<ShootingTarget>();
-        shootingTarget.hitEffectPrefab = bossHitEffectPrefab;
-
-        if (instance.GetComponent<Collider>() == null)
-        {
-            instance.AddComponent<BoxCollider>();
-        }
-
-        var boss = instance.AddComponent<YokaiBoss>();
-        boss.maxHP = bossMaxHP;
-        boss.defeatEffectPrefab = bossDefeatEffectPrefab;
-        boss.bgmManager = bgmManager;
-        boss.hitSound = bossHitSound;
-        boss.hitVolume = bossHitVolume;
-        boss.onDefeated = () => OnBossDefeated(boss, instance);
-        activeBosses.Add(boss);
-
-        Transform moveTarget = spawner != null && spawner.attackTarget != null
-            ? spawner.attackTarget
-            : (Camera.main != null ? Camera.main.transform : null);
-        var mover = instance.AddComponent<YokaiMover>();
-        mover.target = moveTarget;
-        mover.moveSpeed = bossMoveSpeed;
-        mover.attackDistance = bossAttackDistance;
-        mover.pitchOffsetDegrees = spawner != null ? spawner.yokaiPitchOffset : 0f;
-        mover.destroyOnHit = false;
-        mover.destroyOnReachTarget = false;
-        mover.onReachedTarget = OnBossReachedPlayer;
-    }
-
-    // ボスを倒してもラウンドは終了しない。スコア加算のみ行う（HPと勝敗には影響しない）
-    void OnBossDefeated(YokaiBoss boss, GameObject instance)
-    {
-        activeBosses.Remove(boss);
-        if (server != null && server.ConnectedPlayerIds != null)
-        {
-            foreach (var id in server.ConnectedPlayerIds)
-            {
-                server.AddScore(id, bossScoreValue);
-                break; // 1人プレイ想定。最初の1人にのみ加算する
-            }
-        }
-    }
-
-    void OnBossReachedPlayer()
-    {
-        LoseHP(bossAttackDamage);
     }
 
     // YokaiSpawnerから、妖がプレイヤーへ到達（攻撃）した時に呼ばれる
@@ -255,15 +142,13 @@ public class CoopGameFlowController : MonoBehaviour
 
         if (lobbyUI != null) lobbyUI.SetActive(false);
         if (scoreboardUI != null) scoreboardUI.SetActive(true);
+        SetLobbyOnlyObjectsActive(false);
         if (practiceTargets != null) practiceTargets.ClearPracticeTargets();
         if (server != null) server.ResetScores();
         currentHP = maxHP;
         UpdateHPUI();
-        remainingTime = timeLimit;
-        activeBosses.Clear();
         gameActive = true;
         if (spawner != null) spawner.StartSpawning();
-        bossSpawnCoroutine = StartCoroutine(BossSpawnLoop());
 
         yield return Fade(0f, fadeInDuration);
     }
@@ -271,31 +156,21 @@ public class CoopGameFlowController : MonoBehaviour
     IEnumerator EndSequence(bool cleared)
     {
         if (spawner != null) spawner.StopSpawning();
-        if (bossSpawnCoroutine != null)
-        {
-            StopCoroutine(bossSpawnCoroutine);
-            bossSpawnCoroutine = null;
-        }
-        foreach (var boss in activeBosses)
-        {
-            if (boss != null) Destroy(boss.gameObject);
-        }
-        activeBosses.Clear();
 
         yield return Fade(1f, fadeOutDuration);
 
         if (bgmManager != null) bgmManager.PlayResultBgm(cleared);
 
-        int finalScore = GetPlayerScore();
+        string scoreList = GetScoreListText();
 
         if (resultTitleText != null)
         {
-            resultTitleText.text = cleared ? "生存成功！" : "全滅…";
+            resultTitleText.text = cleared ? "討伐成功！" : "全滅…";
         }
         if (resultText != null)
         {
             resultText.text = (cleared ? "残りHP　" + currentHP + " / " + maxHP : "妖にやられてしまった…") +
-                "\nスコア　" + finalScore;
+                "\n" + scoreList;
         }
         if (resultUI != null) resultUI.SetActive(true);
 
@@ -313,6 +188,7 @@ public class CoopGameFlowController : MonoBehaviour
 
         if (lobbyUI != null) lobbyUI.SetActive(true);
         if (scoreboardUI != null) scoreboardUI.SetActive(false);
+        SetLobbyOnlyObjectsActive(true);
         if (practiceTargets != null) practiceTargets.ShowPracticeTargets();
 
         yield return Fade(0f, fadeInDuration);
@@ -320,14 +196,19 @@ public class CoopGameFlowController : MonoBehaviour
         running = false;
     }
 
-    int GetPlayerScore()
+    // 結果画面に表示する、参加者1人ずつのスコア一覧を組み立てる
+    string GetScoreListText()
     {
-        if (server == null || server.ConnectedPlayerIds == null) return 0;
+        // slotManagerがあれば、ゲーム中のスコアボードと同じ色名付き表記をそのまま使う
+        if (slotManager != null) return slotManager.GetFormattedScoreList();
+
+        if (server == null || server.ConnectedPlayerIds == null) return "";
+        var sb = new System.Text.StringBuilder();
         foreach (var id in server.ConnectedPlayerIds)
         {
-            if (server.TryGetPlayer(id, out var info)) return info.score;
+            if (server.TryGetPlayer(id, out var info)) sb.AppendLine(info.score + "点");
         }
-        return 0;
+        return sb.ToString();
     }
 
     void ResetForNextRound()

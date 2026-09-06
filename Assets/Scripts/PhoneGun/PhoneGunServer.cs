@@ -121,6 +121,10 @@ public class PhoneGunServer : MonoBehaviour
     private int colorCounter;
     private Process ngrokProcess;
 
+    // 外部(協力プレイ側のスロット管理等)が参加時の色決定に介入するためのフック。
+    // 未設定時は既存の8色ローテーションのまま動作する。第一引数は参加者id。
+    public System.Func<string, string> ColorAssignerOverride;
+
     // QRコードPNGはメインスレッド(Texture2D)でしか生成できないため、PhoneGunManagerが
     // URL確定時に生成してここへセットしたものを、バックグラウンドスレッドからは
     // 読み取り専用でそのまま返す。参照の差し替えだけなのでロック不要。
@@ -601,8 +605,16 @@ public class PhoneGunServer : MonoBehaviour
     string HandleJoin()
     {
         string id = Guid.NewGuid().ToString("N").Substring(0, 8);
-        int idx = Interlocked.Increment(ref colorCounter) - 1;
-        string color = PlayerColors[idx % PlayerColors.Length];
+        string color;
+        if (ColorAssignerOverride != null)
+        {
+            color = ColorAssignerOverride(id);
+        }
+        else
+        {
+            int idx = Interlocked.Increment(ref colorCounter) - 1;
+            color = PlayerColors[idx % PlayerColors.Length];
+        }
 
         var info = new PlayerInfo { id = id, colorHex = color, score = 0, lastActivity = DateTime.UtcNow };
         players[id] = info;
