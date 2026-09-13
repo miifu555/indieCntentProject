@@ -320,6 +320,12 @@
   // 構え終わった頃の向きが最終的な基準点になるようにする
   var RECENTER_WINDOW_MS = 400;
 
+  // 傾き送信(/aim)の間隔(ms)。短いほど照準は滑らかになるが、参加人数分だけ
+  // リクエスト数が線形に増える(例: 80msだと8人で合計約100回/秒)。ngrok有料版が
+  // 前提なのでこの程度なら問題ない想定。もし無料版に戻す・回線が細い環境で使う
+  // 場合はこの値を大きくして通信量を減らす
+  var AIM_SEND_INTERVAL_MS = 80;
+
   var DRAG_RANGE = 120;     // スライドできる最大距離(px)
   var DRAG_THRESHOLD = 45;  // これ以上スライドしたら投げる(px)。短くして連投しやすくする
   var dragging = false;
@@ -397,7 +403,7 @@
     }
 
     window.addEventListener("deviceorientation", onOrientation);
-    sendTimer = setInterval(sendAim, 70);
+    sendTimer = setInterval(sendAim, AIM_SEND_INTERVAL_MS);
 
     unlockAudio();
 

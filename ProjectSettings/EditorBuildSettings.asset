@@ -6,9 +6,6 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
-    path: Assets/Scenes/ShootingGallery.unity
-    guid: 95dace15cb166fa469390c77ae4d3ab8
-  - enabled: 1
     path: Assets/Scenes/yokaidaikessen.unity
     guid: 55a18bed4b2df414f94073cd771da58d
   m_configObjects:
