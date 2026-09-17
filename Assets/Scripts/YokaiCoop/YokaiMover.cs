@@ -62,6 +62,7 @@ public class YokaiMover : MonoBehaviour
             if (wasColliderEnabled && !isColliderEnabled)
             {
                 currentHP--;
+
                 if (currentHP <= 0)
                 {
                     finished = true;

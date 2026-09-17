@@ -220,6 +220,25 @@ public class CoopPlayerSlotManager : MonoBehaviour
         manager.scoreboardText.text = BuildScoreText(assignmentsSnapshot);
     }
 
+    // 枠番号(slots配列のindex)から、現在その枠を使っているプレイヤーIDを取得する。
+    // 手動切断メニュー(CoopPlayerAdminPanel)など、他のスクリプトから参照する用
+    public bool TryGetPlayerIdForSlot(int slotIndex, out string id)
+    {
+        lock (assignLock)
+        {
+            foreach (var kv in assignments)
+            {
+                if (kv.Value == slotIndex)
+                {
+                    id = kv.Key;
+                    return true;
+                }
+            }
+        }
+        id = null;
+        return false;
+    }
+
     // 結果画面など、他のスクリプトから「色名: N点」を1人ずつ並べた文字列を取得するための公開API
     public string GetFormattedScoreList()
     {

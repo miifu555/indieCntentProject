@@ -3,6 +3,15 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 
+// 参加人数ごとの最大HP設定
+[System.Serializable]
+public class PlayerCountHP
+{
+    [Tooltip("この人数以上で以下のmaxHPを適用する")]
+    public int playerCount = 1;
+    public int maxHP = 5;
+}
+
 // 妖退治（協力プレイ）ゲームの進行管理。
 // ロビー → 封印(CoopStartGate)破壊で開始 → 町の中に妖が徐々に短い間隔で出現し、
 // プレイヤー(カメラ)に接近してくる → 妖に近づかれるたびHPが減り、0になると全滅（失敗）。
@@ -43,8 +52,20 @@ public class CoopGameFlowController : MonoBehaviour
     public PhoneGunServer server;
     [Tooltip("結果画面で1人ずつのスコアを色名付きで表示するために使う（未設定なら色名無しで1人ずつ表示する）")]
     public CoopPlayerSlotManager slotManager;
-    [Tooltip("プレイヤーのHP。妖に近づかれるたび1減る")]
+    [Tooltip("プレイヤーのHP。妖に近づかれるたび1減る。hpByPlayerCountが未設定の場合のデフォルト値としても使う")]
     public int maxHP = 5;
+    [Tooltip("参加人数によってHPを変える場合のリスト。ラウンド開始時点の接続人数以下で最も人数が多い設定が使われる（どれも当てはまらなければ一番少ない人数の設定を使う）。空ならmaxHPをそのまま使う")]
+    public PlayerCountHP[] hpByPlayerCount;
+
+    [Header("被弾演出（妖に攻撃された時）")]
+    [Tooltip("妖に攻撃された瞬間に出す視覚効果（任意。カメラの少し前に出す）")]
+    public GameObject playerHitEffectPrefab;
+    [Tooltip("被弾エフェクトを消すまでの秒数")]
+    public float playerHitEffectLifetime = 1f;
+    [Tooltip("妖に攻撃された瞬間に鳴らす効果音（任意。未設定なら鳴らさない）")]
+    public AudioClip playerHitSound;
+    [Range(0f, 1f)]
+    public float playerHitVolume = 1f;
 
     [Header("HP UI")]
     public Slider gaugeSlider;
@@ -97,7 +118,22 @@ public class CoopGameFlowController : MonoBehaviour
     // YokaiSpawnerから、妖がプレイヤーへ到達（攻撃）した時に呼ばれる
     void OnYokaiReachedPlayer()
     {
+        PlayPlayerHitReaction();
         LoseHP(1);
+    }
+
+    void PlayPlayerHitReaction()
+    {
+        if (bgmManager != null) bgmManager.PlaySfx(playerHitSound, playerHitVolume);
+        if (playerHitEffectPrefab != null)
+        {
+            Transform cam = Camera.main != null ? Camera.main.transform : null;
+            Vector3 pos = cam != null ? cam.position + cam.forward * 0.5f : transform.position;
+            Quaternion rot = cam != null ? cam.rotation : Quaternion.identity;
+            GameObject effect = Instantiate(playerHitEffectPrefab, pos, rot);
+            if (cam != null) effect.transform.SetParent(cam, true);
+            Destroy(effect, playerHitEffectLifetime);
+        }
     }
 
     void LoseHP(int amount)
@@ -112,6 +148,36 @@ public class CoopGameFlowController : MonoBehaviour
             gameActive = false;
             StartCoroutine(EndSequence(false));
         }
+    }
+
+    int CountConnectedPlayers()
+    {
+        int count = 0;
+        if (server != null && server.ConnectedPlayerIds != null)
+        {
+            foreach (var id in server.ConnectedPlayerIds) count++;
+        }
+        return count;
+    }
+
+    // hpByPlayerCountから、connectedCount以下で最も人数が多い設定を選ぶ。
+    // どれも当てはまらない（全設定がconnectedCountより多い人数を要求している）場合は
+    // 一番少ない人数の設定を使う
+    int ResolveMaxHP(int connectedCount)
+    {
+        PlayerCountHP best = null;
+        PlayerCountHP smallest = null;
+        foreach (var entry in hpByPlayerCount)
+        {
+            if (entry == null) continue;
+            if (smallest == null || entry.playerCount < smallest.playerCount) smallest = entry;
+            if (entry.playerCount <= connectedCount && (best == null || entry.playerCount > best.playerCount))
+            {
+                best = entry;
+            }
+        }
+        PlayerCountHP chosen = best ?? smallest;
+        return chosen != null ? chosen.maxHP : maxHP;
     }
 
     void UpdateHPUI()
@@ -145,6 +211,10 @@ public class CoopGameFlowController : MonoBehaviour
         SetLobbyOnlyObjectsActive(false);
         if (practiceTargets != null) practiceTargets.ClearPracticeTargets();
         if (server != null) server.ResetScores();
+        if (hpByPlayerCount != null && hpByPlayerCount.Length > 0)
+        {
+            maxHP = ResolveMaxHP(CountConnectedPlayers());
+        }
         currentHP = maxHP;
         UpdateHPUI();
         gameActive = true;
