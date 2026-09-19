@@ -201,6 +201,9 @@ MonoBehaviour:
   fadeInDuration: 0.2
   scoreValue: 100
   shareScoreWithAll: 1
+  showHpBar: 1
+  bossName: "\u30B4\u30FC\u30B9\u30C8\u30AD\u30F3\u30B0"
+  hitEffectPrefab: {fileID: 8293869836834216953, guid: 8293690d7899953419fb457436cdb93e, type: 3}
 --- !u!65 &1945525219639637250
 BoxCollider:
   m_ObjectHideFlags: 0

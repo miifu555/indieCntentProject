@@ -19,4 +19,14 @@ public class YokaiStats : MonoBehaviour
     public int scoreValue = 20;
     [Tooltip("trueにすると、倒した時にscoreValueが参加中の全プレイヤーへ加算される（撃破した本人だけに入る通常の命中スコアは無効になる）。falseなら今まで通り撃破に貢献した本人だけに入る")]
     public bool shareScoreWithAll = false;
+
+    [Header("ボス表示")]
+    [Tooltip("trueにすると、出現している間、画面上部にこの妖のHPバーを表示する（ラストのボス用）")]
+    public bool showHpBar = false;
+    [Tooltip("HPバーに表示する名前")]
+    public string bossName = "";
+
+    [Header("演出")]
+    [Tooltip("この妖専用の命中エフェクト。設定するとYokaiSpawner側の共通の命中エフェクトの代わりに使う（未設定なら共通のものを使う）")]
+    public GameObject hitEffectPrefab;
 }

@@ -67,6 +67,8 @@ public class YokaiSpawner : MonoBehaviour
     public GameObject defeatEffectPrefab;
     [Tooltip("命中音を鳴らすBGMマネージャー（同じ場所から2D再生する）")]
     public CoopBgmManager bgmManager;
+    [Tooltip("YokaiStats.showHpBarがtrueの妖（ボス）が出現した時にHPを表示するバー")]
+    public BossHpBar bossHpBar;
 
     [Tooltip("妖がプレイヤーへ到達（攻撃）した時に呼ばれる")]
     public System.Action onYokaiReachedTarget;
@@ -236,7 +238,7 @@ public class YokaiSpawner : MonoBehaviour
         shootingTarget.scoreValue = shareScoreWithAll ? 0 : (stats != null ? stats.scoreValue : scoreValuePerHit);
         shootingTarget.respawns = hp > 1;
         if (hp > 1 && stats != null) shootingTarget.respawnDelay = stats.hitFlickerDelay;
-        shootingTarget.hitEffectPrefab = hitEffectPrefab;
+        shootingTarget.hitEffectPrefab = (stats != null && stats.hitEffectPrefab != null) ? stats.hitEffectPrefab : hitEffectPrefab;
 
         if (instance.GetComponent<Collider>() == null)
         {
@@ -259,6 +261,11 @@ public class YokaiSpawner : MonoBehaviour
         {
             int shareAmount = stats.scoreValue;
             mover.onDefeated = () => AwardScoreToAllPlayers(shareAmount);
+        }
+
+        if (stats != null && stats.showHpBar && bossHpBar != null)
+        {
+            bossHpBar.Bind(mover, string.IsNullOrEmpty(stats.bossName) ? instance.name.Replace("(Clone)", "").Trim() : stats.bossName);
         }
 
         spawned.Add(instance);

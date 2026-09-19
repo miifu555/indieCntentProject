@@ -38,7 +38,11 @@ public class YokaiMover : MonoBehaviour
     private bool finished;
     private bool reachedTarget;
     private int currentHP;
+    private bool hpInitialized;
     private bool wasColliderEnabled = true;
+
+    // HPバーなどUI表示用（0〜1）。Startで初期化されるまでは満タン扱い
+    public float HpRatio => hpInitialized ? Mathf.Clamp01(currentHP / (float)Mathf.Max(1, maxHP)) : 1f;
 
     void Awake()
     {
@@ -50,6 +54,7 @@ public class YokaiMover : MonoBehaviour
         // YokaiSpawnerはInstantiate直後(Awakeが即座に走った後)にmaxHPを設定するため、
         // Awakeで初期化すると常にデフォルト値(1)のまま固定されてしまう。Startまで遅らせる
         currentHP = Mathf.Max(1, maxHP);
+        hpInitialized = true;
     }
 
     void Update()
