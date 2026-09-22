@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>デバッグ用コントローラー</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
+  html, body {
+    margin: 0; width: 100%; height: 100%;
+    background: #05060a; color: #eee;
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif;
+    overflow: hidden; touch-action: none;
+  }
+  #app {
+    position: fixed; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+    padding: 12px;
+    background: radial-gradient(circle at 50% 50%, #1b2440 0%, #05060a 70%);
+  }
+  #status { display: flex; align-items: center; gap: 8px; font-size: 14px; color: #aaa; }
+  #dot { width: 10px; height: 10px; border-radius: 50%; background: #c33; }
+  #dot.on { background: #3c6; }
+  #score { font-size: 34px; font-weight: 700; }
+  #pad { display: grid; grid-template-columns: repeat(3, 84px); grid-template-rows: repeat(3, 84px); gap: 8px; }
+  .arrow, .btn {
+    border: 2px solid #56607a; border-radius: 14px; background: rgba(255,255,255,0.08);
+    color: #fff; font-size: 34px; display: flex; align-items: center; justify-content: center; cursor: pointer;
+  }
+  .arrow.active { background: rgba(255,255,255,0.35); }
+  #up { grid-column: 2; grid-row: 1; }
+  #left { grid-column: 1; grid-row: 2; }
+  #center { grid-column: 2; grid-row: 2; font-size: 14px; }
+  #right { grid-column: 3; grid-row: 2; }
+  #down { grid-column: 2; grid-row: 3; }
+  #autoFire { width: 300px; height: 76px; font-size: 22px; font-weight: 700; }
+  #autoFire.on { background: #b3261e; border-color: #ff8a80; }
+  #hint { font-size: 12px; color: #889; text-align: center; line-height: 1.7; }
+  #error { color: #f88; font-size: 13px; min-height: 18px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="status"><span id="dot"></span><span id="statusText">接続中...</span></div>
+  <div id="score">0点</div>
+  <div id="pad">
+    <div class="arrow" id="up" data-dir="up">▲</div>
+    <div class="arrow" id="left" data-dir="left">◀</div>
+    <div class="btn" id="center">中央に戻す</div>
+    <div class="arrow" id="right" data-dir="right">▶</div>
+    <div class="arrow" id="down" data-dir="down">▼</div>
+  </div>
+  <div class="btn" id="autoFire">自動連射 OFF（0.2秒ごと）</div>
+  <div id="error"></div>
+  <div id="hint">
+    矢印キー：照準を動かす（Shiftを押しながらでゆっくり）<br>
+    Space / F：自動連射のON・OFF　　C：中央に戻す
+  </div>
+</div>
+
+<script>
+(function () {
+  var API_BASE = window.location.origin;
+  var NGROK_SKIP_HEADERS = { "ngrok-skip-browser-warning": "true" };
+
+  // 傾きの代わりに送る擬似的なセンサー値。ゲーム側は「基準からの差」×感度で照準を動かすので、
+  // 基準値(BASE_*)からの差分(dAlpha/dBeta)だけを動かす。
+  var BASE_ALPHA = 180;
+  var BASE_BETA = 0;
+  var MAX_DELTA = 45;          // 差分の上限(度)。ゲーム側の照準移動量の上限を超えても意味がないため
+  var SPEED_NORMAL = 40;       // 矢印を押している間の移動速度(度/秒)
+  var SPEED_SLOW = 14;         // Shift押下中
+  var AIM_SEND_INTERVAL_MS = 80;
+  var FIRE_INTERVAL_MS = 200;  // 自動連射の間隔
+
+  var playerId = null;
+  var dAlpha = 0;
+  var dBeta = 0;
+  var pendingRecenter = true;
+  var autoFire = false;
+  var held = { up: false, down: false, left: false, right: false };
+  var shiftDown = false;
+
+  var dot = document.getElementById("dot");
+  var statusText = document.getElementById("statusText");
+  var scoreEl = document.getElementById("score");
+  var errorEl = document.getElementById("error");
+  var autoFireBtn = document.getElementById("autoFire");
+  var app = document.getElementById("app");
+
+  function join() {
+    errorEl.textContent = "";
+    fetch(API_BASE + "/join", { headers: NGROK_SKIP_HEADERS })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        playerId = data.id;
+        dot.classList.add("on");
+        statusText.textContent = "接続中 (ID: " + playerId + ")";
+        if (data.color) {
+          app.style.background = "radial-gradient(circle at 50% 50%, " + data.color + " 0%, #05060a 70%)";
+        }
+      })
+      .catch(function (err) {
+        statusText.textContent = "接続失敗";
+        errorEl.textContent = "接続に失敗しました: " + err + "（3秒後に再試行します）";
+        setTimeout(join, 3000);
+      });
+  }
+
+  function clamp(v) { return Math.max(-MAX_DELTA, Math.min(MAX_DELTA, v)); }
+
+  function sendAim() {
+    if (!playerId) return;
+    // alphaは0-360で一周する値なので、範囲内に収めて送る
+    var alpha = ((BASE_ALPHA + dAlpha) % 360 + 360) % 360;
+    var payload = {
+      id: playerId,
+      alpha: alpha,
+      beta: BASE_BETA + dBeta,
+      gamma: 0,
+      recenter: pendingRecenter
+    };
+    pendingRecenter = false;
+
+    fetch(API_BASE + "/aim", {
+      method: "POST",
+      headers: Object.assign({ "Content-Type": "application/json" }, NGROK_SKIP_HEADERS),
+      body: JSON.stringify(payload)
+    })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (data && typeof data.score === "number") scoreEl.textContent = data.score + "点";
+      })
+      .catch(function () { /* 瞬断は無視して次回に任せる */ });
+  }
+
+  function fire() {
+    if (!playerId) return;
+    fetch(API_BASE + "/fire", {
+      method: "POST",
+      headers: Object.assign({ "Content-Type": "application/json" }, NGROK_SKIP_HEADERS),
+      body: JSON.stringify({ id: playerId })
+    }).catch(function () { /* ignore */ });
+  }
+
+  function recenter() {
+    dAlpha = 0;
+    dBeta = 0;
+    pendingRecenter = true;
+  }
+
+  function setAutoFire(on) {
+    autoFire = on;
+    autoFireBtn.classList.toggle("on", on);
+    autoFireBtn.textContent = on ? "自動連射 ON（0.2秒ごと）" : "自動連射 OFF（0.2秒ごと）";
+  }
+
+  // ---- 定期処理 ----
+  // 別タブ・別ウィンドウに隠れていてもブラウザに間引かれないよう、タイマーはWeb Workerで回す
+  // （通常のsetIntervalだと、背面のタブは1秒に1回程度まで遅くなる）
+  var lastTick = performance.now();
+  var aimAccum = 0;
+  var fireAccum = 0;
+
+  function tick() {
+    var now = performance.now();
+    var dt = Math.min(0.1, (now - lastTick) / 1000);
+    lastTick = now;
+
+    var speed = (shiftDown ? SPEED_SLOW : SPEED_NORMAL) * dt;
+    // ゲーム側は 左右 = -dAlpha, 上下 = +dBeta なので、右・上へ動かす時の符号に注意
+    if (held.left)  dAlpha = clamp(dAlpha + speed);
+    if (held.right) dAlpha = clamp(dAlpha - speed);
+    if (held.up)    dBeta  = clamp(dBeta + speed);
+    if (held.down)  dBeta  = clamp(dBeta - speed);
+
+    aimAccum += dt * 1000;
+    if (aimAccum >= AIM_SEND_INTERVAL_MS) {
+      aimAccum = 0;
+      sendAim();
+    }
+
+    if (autoFire) {
+      fireAccum += dt * 1000;
+      if (fireAccum >= FIRE_INTERVAL_MS) {
+        fireAccum -= FIRE_INTERVAL_MS;
+        if (fireAccum > FIRE_INTERVAL_MS) fireAccum = 0;
+        fire();
+      }
+    } else {
+      fireAccum = FIRE_INTERVAL_MS; // ONにした瞬間に1発目がすぐ出る
+    }
+  }
+
+  try {
+    var workerSrc = "setInterval(function(){postMessage(0);}, 20);";
+    var worker = new Worker(URL.createObjectURL(new Blob([workerSrc], { type: "application/javascript" })));
+    worker.onmessage = tick;
+  } catch (e) {
+    setInterval(tick, 20);
+  }
+
+  // ---- 入力 ----
+  var keyToDir = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" };
+
+  window.addEventListener("keydown", function (e) {
+    var dir = keyToDir[e.key];
+    if (dir) {
+      held[dir] = true;
+      document.getElementById(dir).classList.add("active");
+      e.preventDefault();
+      return;
+    }
+    if (e.key === "Shift") { shiftDown = true; return; }
+    if (e.repeat) return;
+    if (e.key === " " || e.key === "f" || e.key === "F") {
+      setAutoFire(!autoFire);
+      e.preventDefault();
+    } else if (e.key === "c" || e.key === "C") {
+      recenter();
+    }
+  });
+
+  window.addEventListener("keyup", function (e) {
+    var dir = keyToDir[e.key];
+    if (dir) {
+      held[dir] = false;
+      document.getElementById(dir).classList.remove("active");
+      e.preventDefault();
+    } else if (e.key === "Shift") {
+      shiftDown = false;
+    }
+  });
+
+  // ウィンドウからフォーカスが外れた時にキーが押しっぱなし扱いにならないようにする
+  window.addEventListener("blur", function () {
+    held.up = held.down = held.left = held.right = false;
+    shiftDown = false;
+    ["up", "down", "left", "right"].forEach(function (d) {
+      document.getElementById(d).classList.remove("active");
+    });
+  });
+
+  // 画面上の十字ボタン（マウス・タッチ）
+  Array.prototype.forEach.call(document.querySelectorAll(".arrow"), function (el) {
+    var dir = el.getAttribute("data-dir");
+    function press(e) { held[dir] = true; el.classList.add("active"); e.preventDefault(); }
+    function release() { held[dir] = false; el.classList.remove("active"); }
+    el.addEventListener("pointerdown", press);
+    el.addEventListener("pointerup", release);
+    el.addEventListener("pointerleave", release);
+    el.addEventListener("pointercancel", release);
+  });
+
+  document.getElementById("center").addEventListener("click", recenter);
+  autoFireBtn.addEventListener("click", function () { setAutoFire(!autoFire); });
+
+  join();
+})();
+</script>
+</body>
+</html>

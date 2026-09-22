@@ -58,14 +58,19 @@ public class CoopGameFlowController : MonoBehaviour
     public PlayerCountHP[] hpByPlayerCount;
 
     [Header("被弾演出（妖に攻撃された時）")]
-    [Tooltip("妖に攻撃された瞬間に出す視覚効果（任意。カメラの少し前に出す）")]
+    [Tooltip("妖に攻撃された瞬間、画面の周囲に赤い靄を出す演出")]
+    public PlayerHitVignette hitVignette;
+    [Tooltip("妖に攻撃された瞬間に出す視覚効果（任意。カメラの少し前に出す。hitVignetteとは別に、追加で3D空間に何か出したい場合のみ使う）")]
     public GameObject playerHitEffectPrefab;
     [Tooltip("被弾エフェクトを消すまでの秒数")]
     public float playerHitEffectLifetime = 1f;
-    [Tooltip("妖に攻撃された瞬間に鳴らす効果音（任意。未設定なら鳴らさない）")]
+    [Tooltip("妖に攻撃された瞬間に鳴らす効果音（未設定なら鳴らさない）")]
     public AudioClip playerHitSound;
     [Range(0f, 1f)]
     public float playerHitVolume = 1f;
+
+    [Tooltip("テスト・撮影用。trueにすると妖に攻撃されてもHPが減らない（被弾演出は通常通り出る）")]
+    public bool invincible = false;
 
     [Header("HP UI")]
     public Slider gaugeSlider;
@@ -125,6 +130,7 @@ public class CoopGameFlowController : MonoBehaviour
     void PlayPlayerHitReaction()
     {
         if (bgmManager != null) bgmManager.PlaySfx(playerHitSound, playerHitVolume);
+        if (hitVignette != null) hitVignette.Flash();
         if (playerHitEffectPrefab != null)
         {
             Transform cam = Camera.main != null ? Camera.main.transform : null;
@@ -138,7 +144,7 @@ public class CoopGameFlowController : MonoBehaviour
 
     void LoseHP(int amount)
     {
-        if (!gameActive) return;
+        if (!gameActive || invincible) return;
 
         currentHP = Mathf.Max(0, currentHP - amount);
         UpdateHPUI();

@@ -30,6 +30,8 @@ public class CoopStartGate : MonoBehaviour
     public CoopBgmManager bgmManager;
 
     [Header("全員集中判定")]
+    [Tooltip("falseにすると輪の判定を無効にする（輪も非表示になり、誰が命中させても封印が破壊される。テスト・撮影用）")]
+    public bool requireAllAligned = true;
     [Tooltip("参加中の全プレイヤーのレティクルを見るために使う")]
     public PhoneGunManager manager;
     [Tooltip("判定・表示に使う輪。レティクルと同じCanvas(reticleParent)の子として、位置・大きさをエディターで自由に配置する")]
@@ -70,6 +72,7 @@ public class CoopStartGate : MonoBehaviour
                 image.color = ringColor;
                 image.sprite = GenerateRingSprite();
             }
+            if (!requireAllAligned) alignRingRect.gameObject.SetActive(false);
         }
     }
 
@@ -126,6 +129,7 @@ public class CoopStartGate : MonoBehaviour
     // そのまま比較すればよい（カメラ・スクリーン座標変換は不要）
     bool AllReticlesAligned()
     {
+        if (!requireAllAligned) return true;
         if (manager == null || rigsField == null || alignRingRect == null) return true; // 判定できない設定の場合は従来通り即破壊
 
         var rigs = rigsField.GetValue(manager) as System.Collections.IDictionary;
@@ -177,6 +181,6 @@ public class CoopStartGate : MonoBehaviour
     {
         broken = false;
         if (shootingTarget != null) shootingTarget.ResetTarget();
-        if (alignRingRect != null) alignRingRect.gameObject.SetActive(true);
+        if (alignRingRect != null) alignRingRect.gameObject.SetActive(requireAllAligned);
     }
 }
